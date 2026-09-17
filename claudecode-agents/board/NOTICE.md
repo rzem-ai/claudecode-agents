@@ -13,6 +13,12 @@ failures were in tests of the commander CLI, which is replaced rather than
 carried; the rest are recorded, not fixed. Task 1 re-runs the suite and
 replaces this line if the numbers differ on the importing machine.
 
+Run in this package (not the full upstream clone), same machine, same day:
+2833 pass, 8 skip, 31 fail, 2 errors, across 290 files, 2872 tests. The extra
+failures and errors exercise upstream's root-level `scripts/` and `tools/`
+directories and its dogfooded `backlog/` project directory, none of which
+this package carries; they go away with the modules later tasks remove.
+
 Removed, in the order the plan removed them:
 
 - root discovery by walking up and by git (`src/utils/find-backlog-root.ts`, `src/utils/runtime-cwd.ts`)
