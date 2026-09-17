@@ -376,6 +376,27 @@ RC=0
 jq -r '.hooks[][].hooks[].command' "$HOOKS/hooks.json" | grep -qvF '${CLAUDE_PLUGIN_ROOT}' && RC=1
 check commands-use-plugin-root "every command locates its script by the plugin root" $RC
 
+printf '\nThe library: an empty comment never reaches the binary\n'
+
+# board_comment already refuses a whitespace-only text, but board_comment_raw is
+# the other public entry point and had no guard of its own: a caller reaching it
+# directly could post a card comment that says nothing at all. Not reachable
+# from the three hooks, so the library is called directly here. Nothing leaves
+# the process either way: board_comment_raw never consults the enable switch,
+# so the guard is the only thing that can stop the call reaching the shim.
+RC=0
+LOG="$TMP/log.raw"
+: > "$LOG"
+(
+    BOARD_LOG_FILE="$LOG"
+    CLAUDECODE_AGENTS_BOARD=on
+    unset BOARD_DRY_RUN
+    # shellcheck source=/dev/null
+    . "$HOOKS/lib/board.sh"
+    board_comment_raw probe BD-1 "   "
+) >"$TMP/out" 2>"$TMP/err" || RC=$?
+[ "$RC" -ne 0 ] && log_has "nothing posted"; check comment-raw-refuses-empty "board_comment_raw refuses a whitespace-only comment" $?
+
 printf '\nLive backend: the hooks move a real item through the binary\n'
 
 # Everything above proves the hooks read the right fields and decide the right

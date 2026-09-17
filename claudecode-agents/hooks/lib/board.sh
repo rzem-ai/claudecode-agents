@@ -299,12 +299,17 @@ board_cli() {
   err="$(mktemp "${TMPDIR:-/tmp}/board-err.XXXXXX")" || return 1
   # timeout(1) is GNU. Homebrew's coreutils installs it as gtimeout, and a
   # machine with neither still runs the command - unbounded, but running.
+  # `cmd; rc=$?` is not errexit-safe: the hooks run under `set -e`, so a
+  # non-zero exit kills the shell before the assignment ever happens and the
+  # logging below is never reached. `|| rc=$?` puts the call in a condition
+  # context, which is the one place errexit stands down.
+  rc=0
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err"; rc=$?
+    timeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
   elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err"; rc=$?
+    gtimeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
   else
-    "$BOARD_SHIM" "$@" 2>"$err"; rc=$?
+    "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
   fi
   if [ "$rc" -ne 0 ]; then
     board_log "$hook" "board $1 failed (exit $rc): $(head -c 300 "$err" | tr '\n' ' ')"
@@ -314,9 +319,23 @@ board_cli() {
 }
 
 # board_resolve HOOK ID -> prints the canonical id, or nothing
+#
+# Three outcomes, not two. The call failing is board_cli's to log; a call that
+# succeeded and still yielded no id is a response this library could not read,
+# and saying so is the difference between "that item does not exist" and "the
+# CLI answered in a shape we do not understand". The caller turns an empty
+# return into "not found", so without this line a renamed JSON field would be
+# reported forever as a missing card.
 board_resolve() {
-  local hook="$1" id="$2"
-  board_cli "$hook" task view "$id" --json | jq -r '.task.id // empty'
+  local hook="$1" id="$2" out ident rc=0
+  out="$(board_cli "$hook" task view "$id" --json)" || rc=$?
+  [ "$rc" -eq 0 ] || return "$rc"
+  ident="$(printf '%s' "$out" | jq -r '.task.id // empty' 2>/dev/null)"
+  if [ -z "$ident" ]; then
+    board_log "$hook" "board item $id: unparseable response"
+    return 1
+  fi
+  printf '%s\n' "$ident"
 }
 
 # board_set_status HOOK ID COLUMN
@@ -327,8 +346,15 @@ board_set_status() {
 }
 
 # board_comment_raw HOOK ID TEXT
+# board_comment guards this already, but this is the other public entry point
+# and a caller reaching it directly must not be able to post a card comment
+# that says nothing. Both doors, one rule.
 board_comment_raw() {
   local hook="$1" id="$2" text="$3"
+  if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+    board_log "$hook" "no comment text; nothing posted on $id"
+    return 1
+  fi
   board_cli "$hook" task edit "$id" --comment "$text" --comment-author "@$hook" >/dev/null || return 1
   board_log "$hook" "commented on $id"
 }
