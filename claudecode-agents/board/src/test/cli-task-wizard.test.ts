@@ -1,0 +1,42 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { $ } from "bun";
+import { Core } from "../core/backlog.ts";
+import { getTestCliPath } from "./test-cli.ts";
+import { createUniqueTestDir, initializeFilesystemTestProject, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+const CLI_PATH = getTestCliPath();
+
+describe("CLI task wizard integration compatibility", () => {
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("test-cli-task-wizard");
+		await mkdir(TEST_DIR, { recursive: true });
+
+		const core = new Core(TEST_DIR);
+		await initializeFilesystemTestProject(core, "CLI Wizard Compatibility");
+	});
+
+	afterEach(async () => {
+		await safeCleanup(TEST_DIR);
+	});
+
+	it("preserves non-interactive missing title error for task create", async () => {
+		const result = await $`bun ${CLI_PATH} task create`.cwd(TEST_DIR).quiet().nothrow();
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("error: missing required argument 'title'");
+	});
+
+	it("preserves non-interactive missing taskId error for task edit", async () => {
+		const result = await $`bun ${CLI_PATH} task edit`.cwd(TEST_DIR).quiet().nothrow();
+		expect(result.exitCode).not.toBe(0);
+		expect(result.stderr.toString()).toContain("error: missing required argument 'taskId'");
+	});
+
+	it("keeps legacy non-interactive edit behavior when taskId is provided", async () => {
+		await $`bun ${CLI_PATH} task create "Edit target" --desc "Before edit"`.cwd(TEST_DIR).quiet();
+		const result = await $`bun ${CLI_PATH} task edit 1`.cwd(TEST_DIR).quiet().nothrow();
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout.toString()).toContain("Updated task");
+	});
+});

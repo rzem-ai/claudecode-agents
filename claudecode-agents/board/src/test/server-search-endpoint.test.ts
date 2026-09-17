@@ -1,0 +1,861 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { join } from "node:path";
+import { DEFAULT_STATUSES } from "../constants/index.ts";
+import type { Core } from "../core/backlog.ts";
+import { FileSystem } from "../file-system/operations.ts";
+import { BacklogServer } from "../server/index.ts";
+import type { Decision, Document, Milestone, Task } from "../types/index.ts";
+import { createUniqueTestDir, retry, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+let server: BacklogServer | null = null;
+let filesystem: FileSystem;
+let serverPort = 0;
+
+const baseTask: Task = {
+	id: "TASK-0007",
+	title: "Server search task",
+	status: "In Progress",
+	assignee: ["@codex"],
+	reporter: "@codex",
+	createdDate: "2025-09-20 10:00",
+	updatedDate: "2025-09-20 10:00",
+	labels: ["search"],
+	dependencies: [],
+	description: "Alpha token appears here",
+	priority: "high",
+	modifiedFiles: ["src/server/index.ts", "src/core/search-service.ts"],
+};
+
+const baseDoc: Document = {
+	id: "doc-9001",
+	title: "Search Handbook",
+	type: "guide",
+	createdDate: "2025-09-20",
+	updatedDate: "2025-09-20",
+	rawContent: "# Guide\nAlpha document guidance",
+};
+
+const baseDecision: Decision = {
+	id: "decision-9001",
+	title: "Centralize search",
+	date: "2025-09-19",
+	status: "accepted",
+	context: "Need consistent Alpha search coverage",
+	decision: "Adopt shared Fuse service",
+	consequences: "Shared index",
+	rawContent: "## Context\nAlpha adoption",
+};
+
+const dependentTask: Task = {
+	id: "TASK-0008",
+	title: "Follow-up integration",
+	status: "In Progress",
+	assignee: ["@codex"],
+	reporter: "@codex",
+	createdDate: "2025-09-20 10:30",
+	updatedDate: "2025-09-20 10:30",
+	labels: ["search"],
+	dependencies: [baseTask.id],
+	description: "Depends on task-0007 for completion",
+	priority: "medium",
+	modifiedFiles: ["src/ui/task-viewer-with-search.ts"],
+};
+
+const customPriorityTask: Task = {
+	id: "TASK-0009",
+	title: "Custom priority escalation",
+	status: "In Progress",
+	assignee: ["@codex"],
+	reporter: "@codex",
+	createdDate: "2025-09-20 11:00",
+	updatedDate: "2025-09-20 11:00",
+	labels: ["search"],
+	dependencies: [],
+	description: "Custom priority lookup target",
+	priority: "very high",
+	modifiedFiles: ["src/server/index.ts"],
+};
+
+describe("BacklogServer search endpoint", () => {
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("server-search");
+		filesystem = new FileSystem(TEST_DIR);
+		await filesystem.ensureBacklogStructure();
+		await filesystem.saveConfig({
+			projectName: "Server Search",
+			statuses: ["To Do", "In Progress", "Done"],
+			labels: [],
+			types: ["Bug", "Feature", "Customer Request"],
+			priorities: ["Very High", "High", "Medium", "Low", "Very Low"],
+			milestones: [],
+			dateFormat: "YYYY-MM-DD",
+			remoteOperations: false,
+		});
+
+		await filesystem.saveTask(baseTask);
+		await filesystem.saveTask(dependentTask);
+		await filesystem.saveTask(customPriorityTask);
+		await filesystem.saveDocument(baseDoc);
+		await filesystem.saveDecision(baseDecision);
+
+		server = new BacklogServer(TEST_DIR);
+		await server.start(0, false);
+		const port = server.getPort();
+		expect(port).not.toBeNull();
+		serverPort = port ?? 0;
+		expect(serverPort).toBeGreaterThan(0);
+
+		await retry(
+			async () => {
+				const tasks = await fetchJson<Task[]>("/api/tasks");
+				expect(tasks.length).toBeGreaterThan(0);
+				return tasks;
+			},
+			10,
+			100,
+		);
+	});
+
+	afterEach(async () => {
+		if (server) {
+			await server.stop();
+			server = null;
+		}
+		await safeCleanup(TEST_DIR);
+	});
+
+	it("returns tasks, documents, and decisions from the shared search service", async () => {
+		const results = await retry(
+			async () => {
+				const data = await fetchJson<Array<{ type?: string }>>("/api/search?query=alpha");
+				const typeSet = new Set(data.map((item) => item.type));
+				if (!typeSet.has("task") || !typeSet.has("document") || !typeSet.has("decision")) {
+					throw new Error("Search results not yet indexed for all types");
+				}
+				return data;
+			},
+			20,
+			100,
+		);
+		const finalTypes = new Set(results.map((item) => item.type));
+		expect(finalTypes.has("task")).toBe(true);
+		expect(finalTypes.has("document")).toBe(true);
+		expect(finalTypes.has("decision")).toBe(true);
+	});
+
+	it("refreshes task refs only when the requested result types include tasks", async () => {
+		if (!server) throw new Error("Server not started");
+		const core = (server as unknown as { core: Core }).core;
+		const originalRefreshTasksForTaskRead = core.refreshTasksForTaskRead.bind(core);
+		const originalListRecentBranchTips = core.git.listRecentBranchTips.bind(core.git);
+		let taskRefreshes = 0;
+		let branchSnapshots = 0;
+		core.refreshTasksForTaskRead = async () => {
+			taskRefreshes += 1;
+			return await originalRefreshTasksForTaskRead();
+		};
+		core.git.listRecentBranchTips = async () => {
+			branchSnapshots += 1;
+			return [];
+		};
+
+		try {
+			const nonTaskResults = await fetchJson<Array<{ type?: string }>>(
+				"/api/search?type=document&type=decision&query=alpha",
+			);
+			expect(new Set(nonTaskResults.map((item) => item.type))).toEqual(new Set(["document", "decision"]));
+			expect(taskRefreshes).toBe(0);
+
+			const invalidResponse = await fetch(`http://127.0.0.1:${serverPort}/api/search?type=milestone&query=alpha`);
+			expect(invalidResponse.status).toBe(400);
+			expect(taskRefreshes).toBe(0);
+			expect(branchSnapshots).toBe(0);
+
+			const invalidStatusResponse = await fetch(
+				`http://127.0.0.1:${serverPort}/api/search?type=task&excludeStatus=Blocked&query=alpha`,
+			);
+			expect(invalidStatusResponse.status).toBe(400);
+			const invalidPriorityResponse = await fetch(
+				`http://127.0.0.1:${serverPort}/api/search?type=task&priority=urgent&query=alpha`,
+			);
+			expect(invalidPriorityResponse.status).toBe(400);
+			expect(taskRefreshes).toBe(0);
+			expect(branchSnapshots).toBe(0);
+
+			await fetchJson<Array<{ type?: string }>>("/api/search?type=task&query=alpha");
+			expect(taskRefreshes).toBe(1);
+			expect(branchSnapshots).toBeGreaterThan(0);
+		} finally {
+			core.refreshTasksForTaskRead = originalRefreshTasksForTaskRead;
+			core.git.listRecentBranchTips = originalListRecentBranchTips;
+		}
+	});
+
+	it("filters search results by priority and status", async () => {
+		const url = "/api/search?type=task&status=In%20Progress&priority=high&query=search";
+		const results = await fetchJson<Array<{ type: string; task?: Task }>>(url);
+		expect(results).toHaveLength(1);
+		expect(results[0]?.type).toBe("task");
+		expect(results[0]?.task?.id).toBe(baseTask.id);
+	});
+
+	it("excludes configured statuses from task listings and search results", async () => {
+		const tasks = await fetchJson<Task[]>("/api/tasks?excludeStatus=In%20Progress");
+		expect(tasks).toHaveLength(0);
+
+		const results = await fetchJson<Array<{ type: string; task?: Task }>>(
+			"/api/search?type=task&query=search&excludeStatus=In%20Progress",
+		);
+		expect(results).toHaveLength(0);
+	});
+
+	it("uses configured custom priorities for task and search filters", async () => {
+		const taskResults = await fetchJson<Task[]>("/api/tasks?priority=VERY%20HIGH");
+		expect(taskResults.map((task) => task.id)).toEqual([customPriorityTask.id]);
+
+		const searchResults = await fetchJson<Array<{ type: string; task?: Task }>>(
+			"/api/search?type=task&query=custom&priority=Very%20High",
+		);
+		expect(searchResults).toHaveLength(1);
+		expect(searchResults[0]?.task?.id).toBe(customPriorityTask.id);
+	});
+
+	it("filters search results by assignee and labels", async () => {
+		const url = "/api/search?type=task&query=Alpha&status=In%20Progress&priority=high&label=search&assignee=%40codex";
+		const results = await fetchJson<Array<{ type: string; task?: Task }>>(url);
+		expect(results).toHaveLength(1);
+		expect(results[0]?.type).toBe("task");
+		expect(results[0]?.task?.id).toBe(baseTask.id);
+	});
+
+	it("filters task listings by priority via the content store", async () => {
+		const tasks = await fetchJson<Task[]>("/api/tasks?priority=high");
+		expect(tasks).toHaveLength(1);
+		expect(tasks[0]?.id).toBe(baseTask.id);
+	});
+
+	it("rejects unsupported priority filters with 400", async () => {
+		await expect(fetchJson<Task[]>("/api/tasks?priority=urgent")).rejects.toThrow();
+	});
+
+	it("rejects unsupported excluded statuses with 400", async () => {
+		await expect(fetchJson<Task[]>("/api/tasks?excludeStatus=Blocked")).rejects.toThrow();
+		await expect(fetchJson<Array<{ type: string }>>("/api/search?type=task&excludeStatus=Blocked")).rejects.toThrow();
+	});
+
+	it("returns default statuses from the statuses endpoint when configured statuses are empty", async () => {
+		if (server) {
+			await server.stop();
+			server = null;
+		}
+		const config = await filesystem.loadConfig();
+		if (!config) {
+			throw new Error("Config not loaded");
+		}
+		await filesystem.saveConfig({ ...config, statuses: [] });
+
+		server = new BacklogServer(TEST_DIR);
+		await server.start(0, false);
+		const port = server.getPort();
+		expect(port).not.toBeNull();
+		serverPort = port ?? 0;
+
+		const statuses = await fetchJson<string[]>("/api/statuses");
+		expect(statuses).toEqual(Array.from(DEFAULT_STATUSES));
+	});
+
+	it("supports zero-padded ids and dependency-aware search", async () => {
+		const viaLooseId = await fetchJson<Task>("/api/task/7");
+		expect(viaLooseId.id).toBe(baseTask.id);
+
+		const paddedViaSearch = await fetchJson<Array<{ type: string; task?: Task }>>("/api/search?type=task&query=task-7");
+		const paddedIds = paddedViaSearch.filter((result) => result.type === "task").map((result) => result.task?.id);
+		expect(paddedIds).toContain(baseTask.id);
+
+		const shortQueryResults = await fetchJson<Array<{ type: string; task?: Task }>>("/api/search?type=task&query=7");
+		const shortIds = shortQueryResults.filter((result) => result.type === "task").map((result) => result.task?.id);
+		expect(shortIds).toContain(baseTask.id);
+
+		const dependencyMatches = await fetchJson<Array<{ type: string; task?: Task }>>(
+			"/api/search?type=task&query=task-0007",
+		);
+		const dependencyIds = dependencyMatches
+			.filter((result) => result.type === "task")
+			.map((result) => result.task?.id)
+			.filter((id): id is string => Boolean(id));
+		expect(dependencyIds).toEqual(expect.arrayContaining([baseTask.id, dependentTask.id]));
+	});
+
+	it("searches and filters tasks by modified file path", async () => {
+		const queryMatches = await fetchJson<Array<{ type: string; task?: Task }>>(
+			"/api/search?type=task&query=src/server/index.ts",
+		);
+		const queryIds = queryMatches.filter((result) => result.type === "task").map((result) => result.task?.id);
+		expect(queryIds).toContain(baseTask.id);
+
+		const filterMatches = await fetchJson<Array<{ type: string; task?: Task }>>(
+			"/api/search?type=task&modifiedFile=task-viewer",
+		);
+		const filterIds = filterMatches.filter((result) => result.type === "task").map((result) => result.task?.id);
+		expect(filterIds).toEqual([dependentTask.id]);
+	});
+
+	it("returns newly created tasks immediately after POST", async () => {
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Immediate fetch",
+				status: "In Progress",
+				description: "Immediate availability",
+			}),
+		});
+		expect(createResponse.ok).toBe(true);
+		const created = (await createResponse.json()) as Task;
+		expect(created.title).toBe("Immediate fetch");
+		const shortId = created.id.replace(/^task-/i, "");
+		const fetched = await fetchJson<Task>(`/api/task/${shortId}`);
+		expect(fetched.id).toBe(created.id);
+		expect(fetched.title).toBe("Immediate fetch");
+	});
+
+	it("persists configured task types through create, edit, and clear", async () => {
+		const created = await fetchJson<Task>("/api/tasks", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Typed Web task",
+				status: "To Do",
+				type: "customer request",
+			}),
+		});
+		expect(created.type).toBe("Customer Request");
+
+		const updated = await fetchJson<Task>(`/api/tasks/${created.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ type: "BUG" }),
+		});
+		expect(updated.type).toBe("Bug");
+
+		const cleared = await fetchJson<Task>(`/api/tasks/${created.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ type: "" }),
+		});
+		expect(cleared.type).toBeUndefined();
+	});
+
+	it("rejects unsupported task types from the Web task API", async () => {
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Invalid typed task", status: "To Do", type: "Epic" }),
+		});
+
+		expect(createResponse.status).toBe(400);
+		expect(await createResponse.json()).toEqual({
+			error: "Invalid type: Epic. Valid types are: Bug, Feature, Customer Request",
+		});
+
+		const created = await fetchJson<Task>("/api/tasks", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Keep valid type", status: "To Do", type: "Bug" }),
+		});
+		const updateResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${created.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ type: "Epic" }),
+		});
+
+		expect(updateResponse.status).toBe(400);
+		expect(await updateResponse.json()).toEqual({
+			error: "Invalid type: Epic. Valid types are: Bug, Feature, Customer Request",
+		});
+		expect((await fetchJson<Task>(`/api/task/${created.id}`)).type).toBe("Bug");
+	});
+
+	it("appends comments through the task update API and indexes comment text", async () => {
+		const created = await fetchJson<Task>("/api/tasks", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Comment API task",
+				status: "To Do",
+			}),
+		});
+
+		const updated = await fetchJson<Task>(`/api/tasks/${created.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				commentsAppend: ["server-comment-token body"],
+				commentAuthor: "@web",
+			}),
+		});
+
+		expect(updated.comments?.[0]?.author).toBe("@web");
+		expect(updated.comments?.[0]?.body).toBe("server-comment-token body");
+
+		const fetched = await fetchJson<Task>(`/api/task/${created.id}`);
+		expect(fetched.comments?.[0]?.body).toBe("server-comment-token body");
+
+		const results = await retry(
+			async () => {
+				const data = await fetchJson<Array<{ type: string; task?: Task }>>(
+					"/api/search?type=task&query=server-comment-token",
+				);
+				if (!data.some((result) => result.task?.id === created.id)) {
+					throw new Error("Comment search not indexed yet");
+				}
+				return data;
+			},
+			20,
+			100,
+		);
+		expect(results.some((result) => result.task?.id === created.id)).toBe(true);
+	});
+
+	it("persists milestone when creating tasks via POST", async () => {
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Milestone create",
+				status: "To Do",
+				milestone: "m-2",
+			}),
+		});
+		expect(createResponse.ok).toBe(true);
+		const created = (await createResponse.json()) as Task;
+		expect(created.milestone).toBe("m-2");
+
+		const shortId = created.id.replace(/^task-/i, "");
+		const fetched = await fetchJson<Task>(`/api/task/${shortId}`);
+		expect(fetched.milestone).toBe("m-2");
+
+		const milestoneCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Numeric Alias Milestone",
+			}),
+		});
+		expect(milestoneCreate.status).toBe(201);
+		const createdMilestone = (await milestoneCreate.json()) as { id: string };
+		const numericAlias = createdMilestone.id.replace(/^m-/i, "");
+
+		const numericAliasTaskCreate = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Numeric alias task",
+				status: "To Do",
+				milestone: numericAlias,
+			}),
+		});
+		expect(numericAliasTaskCreate.status).toBe(201);
+		const numericAliasTask = (await numericAliasTaskCreate.json()) as Task;
+		expect(numericAliasTask.milestone).toBe(createdMilestone.id);
+
+		const titleAliasMilestoneCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "1",
+			}),
+		});
+		expect(titleAliasMilestoneCreate.status).toBe(201);
+
+		const idPriorityMilestoneCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "ID priority milestone",
+			}),
+		});
+		expect(idPriorityMilestoneCreate.status).toBe(201);
+
+		const idPriorityTaskCreate = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "ID priority task",
+				status: "To Do",
+				milestone: "1",
+			}),
+		});
+		expect(idPriorityTaskCreate.status).toBe(201);
+		const idPriorityTask = (await idPriorityTaskCreate.json()) as Task;
+		expect(idPriorityTask.milestone).toBe("m-1");
+	});
+
+	it("resolves numeric milestone aliases to zero-padded legacy milestone IDs", async () => {
+		await Bun.write(
+			join(filesystem.milestonesDir, "m-01 - legacy-release.md"),
+			`---
+id: m-01
+title: "Legacy Release"
+---
+
+## Description
+
+Milestone: Legacy Release
+`,
+		);
+
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Legacy alias task",
+				status: "To Do",
+				milestone: "1",
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as Task;
+		expect(created.milestone).toBe("m-01");
+
+		const updateResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks/${created.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				milestone: "m-1",
+			}),
+		});
+		expect(updateResponse.status).toBe(200);
+		const updated = (await updateResponse.json()) as Task;
+		expect(updated.milestone).toBe("m-01");
+	});
+
+	it("prefers canonical IDs when zero-padded and canonical milestone IDs both exist", async () => {
+		await Bun.write(
+			join(filesystem.milestonesDir, "m-1 - canonical-release.md"),
+			`---
+id: m-1
+title: "Canonical Release"
+---
+
+## Description
+
+Milestone: Canonical Release
+`,
+		);
+		await Bun.write(
+			join(filesystem.milestonesDir, "m-01 - zero-padded-release.md"),
+			`---
+id: m-01
+title: "Zero-padded Release"
+---
+
+## Description
+
+Milestone: Zero-padded Release
+`,
+		);
+
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Canonical tie-break task",
+				status: "To Do",
+				milestone: "1",
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as Task;
+		expect(created.milestone).toBe("m-1");
+	});
+
+	it("prefers archived milestone IDs over active title matches for ID-shaped task inputs", async () => {
+		await Bun.write(
+			join(filesystem.archiveMilestonesDir, "m-0 - archived-id.md"),
+			`---
+id: m-0
+title: "Archived source"
+---
+
+## Description
+
+Milestone: Archived source
+`,
+		);
+		await Bun.write(
+			join(filesystem.milestonesDir, "m-2 - active-id-shaped-title.md"),
+			`---
+id: m-2
+title: "m-0"
+---
+
+## Description
+
+Milestone: m-0
+`,
+		);
+
+		const createResponse = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Archived ID priority task",
+				status: "To Do",
+				milestone: "m-0",
+			}),
+		});
+		expect(createResponse.status).toBe(201);
+		const created = (await createResponse.json()) as Task;
+		expect(created.milestone).toBe("m-0");
+	});
+
+	it("rejects milestone titles that collide with existing milestone IDs", async () => {
+		const firstCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Release Alias",
+			}),
+		});
+		expect(firstCreate.status).toBe(201);
+		const created = (await firstCreate.json()) as { id: string };
+
+		const conflictCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: created.id.toUpperCase(),
+			}),
+		});
+		expect(conflictCreate.status).toBe(400);
+		const conflictPayload = (await conflictCreate.json()) as { error?: string };
+		expect(conflictPayload.error).toContain("already exists");
+
+		const numericAliasConflict = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: created.id.replace(/^m-/i, ""),
+			}),
+		});
+		expect(numericAliasConflict.status).toBe(400);
+	});
+
+	it("renames milestones via the Web API and keeps tasks on the canonical milestone ID", async () => {
+		const sourceCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Release Source" }),
+		});
+		expect(sourceCreate.status).toBe(201);
+		const source = (await sourceCreate.json()) as Milestone;
+
+		const targetCreate = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Release Target" }),
+		});
+		expect(targetCreate.status).toBe(201);
+		const target = (await targetCreate.json()) as Milestone;
+
+		const taskCreate = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				title: "Rename milestone task",
+				status: "To Do",
+				milestone: source.title,
+			}),
+		});
+		expect(taskCreate.status).toBe(201);
+		const task = (await taskCreate.json()) as Task;
+		expect(task.milestone).toBe(source.id);
+
+		const renameResponse = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Release Source Prime" }),
+		});
+		expect(renameResponse.status).toBe(200);
+		const renamed = (await renameResponse.json()) as { milestone?: Milestone | null; message?: string };
+		expect(renamed.milestone?.id).toBe(source.id);
+		expect(renamed.milestone?.title).toBe("Release Source Prime");
+		expect(renamed.message).toContain("Renamed milestone");
+
+		const fetchedTask = await fetchJson<Task>(`/api/task/${task.id}`);
+		expect(fetchedTask.milestone).toBe(source.id);
+
+		const titleAliasRenameResponse = await fetch(
+			`http://127.0.0.1:${serverPort}/api/milestones/${encodeURIComponent("Release Source Prime")}`,
+			{
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title: "Release Source Final" }),
+			},
+		);
+		expect(titleAliasRenameResponse.status).toBe(200);
+		const titleAliasRenamed = (await titleAliasRenameResponse.json()) as { milestone?: Milestone | null };
+		expect(titleAliasRenamed.milestone?.id).toBe(source.id);
+		expect(titleAliasRenamed.milestone?.title).toBe("Release Source Final");
+
+		const duplicateRename = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: target.id }),
+		});
+		expect(duplicateRename.status).toBe(400);
+	});
+
+	it("removes milestones via the Web API and clears or reassigns matching tasks", async () => {
+		const createMilestone = async (title: string): Promise<Milestone> => {
+			const response = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title }),
+			});
+			expect(response.status).toBe(201);
+			return (await response.json()) as Milestone;
+		};
+		const createTaskWithMilestone = async (title: string, milestone: string): Promise<Task> => {
+			const response = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title, status: "To Do", milestone }),
+			});
+			expect(response.status).toBe(201);
+			return (await response.json()) as Task;
+		};
+
+		const clearSource = await createMilestone("Clear Source");
+		const clearTask = await createTaskWithMilestone("Clear milestone task", clearSource.id);
+		const clearResponse = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${clearSource.id}`, {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ taskHandling: "clear" }),
+		});
+		expect(clearResponse.status).toBe(200);
+		const clearedTask = await fetchJson<Task>(`/api/task/${clearTask.id}`);
+		expect(clearedTask.milestone).toBeUndefined();
+
+		const reassignSource = await createMilestone("Reassign Source");
+		const reassignTarget = await createMilestone("Reassign Target");
+		const reassignTask = await createTaskWithMilestone("Reassign milestone task", reassignSource.id);
+		const reassignResponse = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${reassignSource.id}`, {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ taskHandling: "reassign", reassignTo: reassignTarget.id }),
+		});
+		expect(reassignResponse.status).toBe(200);
+		const reassignedTask = await fetchJson<Task>(`/api/task/${reassignTask.id}`);
+		expect(reassignedTask.milestone).toBe(reassignTarget.id);
+
+		const removedMilestone = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${reassignSource.id}`);
+		expect(removedMilestone.status).toBe(404);
+	});
+
+	it("rejects malformed and non-object milestone DELETE bodies without changing tasks", async () => {
+		const source = await createMilestoneViaApi("Invalid Delete Source");
+		const task = await createTaskWithMilestoneViaApi("Invalid delete task", source.id);
+
+		const malformedResponse = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`, {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: "{",
+		});
+		expect(malformedResponse.status).toBe(400);
+		const malformedPayload = (await malformedResponse.json()) as { error?: string; code?: string };
+		expect(malformedPayload.code).toBe("VALIDATION_ERROR");
+		expect(malformedPayload.error).toContain("valid JSON");
+
+		const afterMalformedMilestone = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`);
+		expect(afterMalformedMilestone.status).toBe(200);
+		const afterMalformedTask = await fetchJson<Task>(`/api/task/${task.id}`);
+		expect(afterMalformedTask.milestone).toBe(source.id);
+
+		const arrayResponse = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`, {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify([]),
+		});
+		expect(arrayResponse.status).toBe(400);
+		const arrayPayload = (await arrayResponse.json()) as { error?: string; code?: string };
+		expect(arrayPayload.code).toBe("VALIDATION_ERROR");
+		expect(arrayPayload.error).toContain("JSON object");
+
+		const afterArrayMilestone = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/${source.id}`);
+		expect(afterArrayMilestone.status).toBe(200);
+		const afterArrayTask = await fetchJson<Task>(`/api/task/${task.id}`);
+		expect(afterArrayTask.milestone).toBe(source.id);
+	});
+
+	it("returns not found for missing milestone mutation targets", async () => {
+		const renameMissing = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/m-999`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title: "Missing Rename Target" }),
+		});
+		expect(renameMissing.status).toBe(404);
+		const renamePayload = (await renameMissing.json()) as { error?: string; code?: string };
+		expect(renamePayload.code).toBe("NOT_FOUND");
+		expect(renamePayload.error).toContain("Milestone not found");
+
+		const removeMissing = await fetch(`http://127.0.0.1:${serverPort}/api/milestones/m-999`, {
+			method: "DELETE",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ taskHandling: "clear" }),
+		});
+		expect(removeMissing.status).toBe(404);
+		const removePayload = (await removeMissing.json()) as { error?: string; code?: string };
+		expect(removePayload.code).toBe("NOT_FOUND");
+		expect(removePayload.error).toContain("Milestone not found");
+	});
+
+	it("rebuilds the Fuse index when markdown content changes", async () => {
+		await filesystem.saveDocument({
+			...baseDoc,
+			rawContent: "# Guide\nReindexed beta token",
+		});
+
+		await retry(
+			async () => {
+				const updated = await fetchJson<Array<{ type?: string }>>("/api/search?query=beta");
+				if (!updated.some((item) => item.type === "document")) {
+					throw new Error("Document not yet reindexed");
+				}
+				return updated;
+			},
+			40,
+			125,
+		);
+	});
+});
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+	const response = await fetch(`http://127.0.0.1:${serverPort}${path}`, init);
+	if (!response.ok) {
+		throw new Error(`Request failed: ${response.status}`);
+	}
+	return response.json();
+}
+
+async function createMilestoneViaApi(title: string): Promise<Milestone> {
+	const response = await fetch(`http://127.0.0.1:${serverPort}/api/milestones`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ title }),
+	});
+	expect(response.status).toBe(201);
+	return (await response.json()) as Milestone;
+}
+
+async function createTaskWithMilestoneViaApi(title: string, milestone: string): Promise<Task> {
+	const response = await fetch(`http://127.0.0.1:${serverPort}/api/tasks`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ title, status: "To Do", milestone }),
+	});
+	expect(response.status).toBe(201);
+	return (await response.json()) as Task;
+}

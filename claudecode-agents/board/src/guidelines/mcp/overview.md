@@ -1,0 +1,74 @@
+## Backlog.md Overview (MCP)
+
+This project uses Backlog.md to track features, bugs, and structured work as tasks.
+
+### When to Use Backlog
+
+**Create a task if the work requires planning or decision-making:**
+
+Ask yourself: "Do I need to think about HOW to do this?"
+- **YES** → Search for existing task first, create if needed
+- **NO** → Just do it (the change is trivial/mechanical)
+
+**Examples of work that needs tasks:**
+- "Fix the authentication bug" → need to investigate, understand root cause, choose fix
+- "Add error handling to the API" → need to decide what errors, how to handle them
+- "Refactor UserService" → need to plan new structure, migration path
+
+**Examples of work that doesn't need tasks:**
+- "Fix typo in README" → obvious mechanical change
+- "Update version number to 2.0" → straightforward edit
+- "Add missing semicolon" → clear what to do
+
+**Always skip tasks for:**
+- Questions and informational requests
+- Reading/exploring/explaining code, issues, or concepts
+
+### Typical Workflow
+
+When the user requests non-trivial work:
+1. **Search first:** Use `task_search` or `task_list` (with status filters) - work might already be tracked
+2. **If found:** Work on the existing task. Check task-execution workflow to know how to proceed
+3. **If not found:** Create task(s) based on scope (single task or present breakdown for approval). Check task-creation workflow for details
+4. **Execute:** Follow task-execution guidelines
+
+Searching first avoids duplicate tasks and helps you understand existing context.
+
+### Detailed Guidance (Required)
+
+**Read the matching resource below before creating, executing, or finalizing tasks — do not act from this overview alone.** The overview only tells you when to act; these resources define the required procedure, and skipping them produces inconsistent tasks and metadata.
+
+- **Creating tasks** → `backlog://workflow/task-creation` - Scope assessment, acceptance criteria, parent/subtasks structure
+- **Planning & executing work** → `backlog://workflow/task-execution` - Planning workflow, implementation discipline, scope changes
+- **Finalizing tasks** → `backlog://workflow/task-finalization` - Definition of Done, finalization checklist, next steps
+
+### Core Principle
+
+Backlog tracks **commitments** (what will be built). Use your judgment to distinguish between "help me understand X" (no tracking) vs "add feature Y" (track in Backlog).
+
+**Execution Model:** Tasks are executed by independent AI agents in separate sessions. Each agent only sees its assigned task, not prior conversation history, so tasks must include enough context for a developer with no prior knowledge to start immediately.
+
+### MCP Tools Quick Reference
+
+**Note:** "Done" tasks stay in the Done column until periodic cleanup moves them to the completed folder. Don't use `task_complete` immediately after finishing—it's for batch cleanup, not per-task workflow.
+
+- `task_list` — list tasks with optional filtering by status, configured task type, configured project, assignee (or `unassigned: true`), milestone, labels, search, `ready: true` for unblocked tasks, or limit
+- `task_search` — search tasks by title and description, or filter by configured task type, configured project, and project-root-relative `modifiedFiles` path substrings
+- `task_view` — read full task context (description, plan, notes, comments, final summary, acceptance criteria, Definition of Done)
+- `definition_of_done_defaults_get` — read project-level Definition of Done defaults from config
+- `definition_of_done_defaults_upsert` — replace project-level Definition of Done defaults in config
+- `document_list` — list documents, including type, path, timestamps, and tags
+- `document_view` — view document metadata and markdown content
+- `document_create` — create a document with title, content, optional type/tags, and optional docs-directory-relative path
+- `document_update` — update document content, optional title/type/tags, and optional docs-directory-relative path
+- `document_search` — search documents using the shared fuzzy index
+- `task_create` — create new tasks with description and acceptance criteria; DoD fields are for **exceptional** task-level overrides only (`definitionOfDoneAdd`, `disableDefinitionOfDoneDefaults`)
+- `task_edit` — update task metadata, status, plan, notes, comments (`commentsAppend` with optional `commentAuthor`), final summary, acceptance criteria, task-level Definition of Done (`definitionOfDoneAdd/Remove/Check/Uncheck`) for **exceptional** per-task updates, and dependencies
+- DoD is not acceptance criteria: acceptance criteria define scope/behavior, while DoD tracks completion hygiene
+- Comments are for discussion and review notes; Implementation Notes are for execution progress; Final Summary is the PR-style completion summary. Comment bodies may contain Markdown, but standalone `---` lines are reserved as comment delimiters.
+- `task_complete` — move a Done task to the completed folder (periodic cleanup, not immediate)
+- `task_archive` — archive a task that should not be completed (duplicate, canceled, invalid). Note: archived task IDs can be reused by new tasks (soft delete behavior).
+
+**Document path rules:** document paths are relative to the docs directory. Use `path` values like `guides/setup`; absolute paths and `..` traversal are rejected.
+
+**Always operate through MCP tools. Never edit markdown files directly so relationships, metadata, and history stay consistent.**

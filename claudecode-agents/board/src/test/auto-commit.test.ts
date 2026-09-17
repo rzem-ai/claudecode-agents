@@ -1,0 +1,292 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { $ } from "bun";
+import { Core } from "../core/backlog.ts";
+import type { BacklogConfig, Task } from "../types/index.ts";
+import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+
+describe("Auto-commit configuration", () => {
+	let core: Core;
+
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("test-auto-commit");
+		await mkdir(TEST_DIR, { recursive: true });
+
+		// Configure git for tests
+		await $`git init`.cwd(TEST_DIR).quiet();
+
+		core = new Core(TEST_DIR);
+		await initializeTestProject(core, "Test Auto-commit Project", true);
+	});
+
+	afterEach(async () => {
+		await safeCleanup(TEST_DIR);
+	});
+
+	describe("Config migration", () => {
+		it("should include autoCommit in default config with false value", async () => {
+			const config = await core.filesystem.loadConfig();
+			expect(config).toBeDefined();
+			expect(config?.autoCommit).toBe(false);
+		});
+
+		it("should migrate existing config to include autoCommit", async () => {
+			// Create config without autoCommit
+			const oldConfig: BacklogConfig = {
+				projectName: "Test Project",
+				statuses: ["To Do", "Done"],
+				labels: [],
+				milestones: [],
+				dateFormat: "yyyy-mm-dd",
+			};
+			await core.filesystem.saveConfig(oldConfig);
+
+			// Trigger migration
+			await core.ensureConfigMigrated();
+
+			const migratedConfig = await core.filesystem.loadConfig();
+			expect(migratedConfig).toBeDefined();
+			expect(migratedConfig?.autoCommit).toBe(false);
+		});
+	});
+
+	describe("Core operations with autoCommit disabled", () => {
+		beforeEach(async () => {
+			// Set autoCommit to false
+			const config = await core.filesystem.loadConfig();
+			if (config) {
+				config.autoCommit = false;
+				await core.filesystem.saveConfig(config);
+			}
+		});
+
+		it("should not auto-commit when creating task with autoCommit disabled in config", async () => {
+			const task: Task = {
+				id: "task-1",
+				title: "Test Task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+
+			await core.createTask(task);
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+
+		it("should auto-commit when explicitly passing true to createTask", async () => {
+			const task: Task = {
+				id: "task-2",
+				title: "Test Task 2",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+
+			await core.createTask(task, true);
+
+			// Check that working directory is clean (changes were committed)
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(true);
+		});
+
+		it("should not auto-commit when updating task with autoCommit disabled in config", async () => {
+			// First create a task with explicit commit
+			const task: Task = {
+				id: "task-3",
+				title: "Test Task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+			await core.createTask(task, true);
+
+			// Update the task (should not auto-commit)
+			await core.updateTaskFromInput("task-3", { title: "Updated Task" });
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+
+		it("should not auto-commit when archiving task with autoCommit disabled in config", async () => {
+			// First create a task with explicit commit
+			const task: Task = {
+				id: "task-4",
+				title: "Test Task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+			await core.createTask(task, true);
+
+			// Archive the task (should not auto-commit)
+			await core.archiveTask("task-4");
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+	});
+
+	describe("Core operations with autoCommit enabled", () => {
+		beforeEach(async () => {
+			// Set autoCommit to true
+			const config = await core.filesystem.loadConfig();
+			if (config) {
+				config.autoCommit = true;
+				await core.filesystem.saveConfig(config);
+			}
+
+			// Commit the config change to start with a clean state
+			const git = await core.getGitOps();
+			await git.addFile(join(TEST_DIR, "backlog", "config.yml"));
+			await git.commitChanges("Update autoCommit config for test");
+		});
+
+		it("should auto-commit when creating task with autoCommit enabled in config", async () => {
+			const task: Task = {
+				id: "task-5",
+				title: "Test Task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+
+			await core.createTask(task);
+
+			// Check that working directory is clean (changes were committed)
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(true);
+		});
+
+		it("should not auto-commit when explicitly passing false to createTask", async () => {
+			const task: Task = {
+				id: "task-6",
+				title: "Test Task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Test description",
+			};
+
+			await core.createTask(task, false);
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+
+		it("should auto-commit archive cleanup updates when archiving a task", async () => {
+			const archiveTarget: Task = {
+				id: "task-7",
+				title: "Archive target",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: [],
+				description: "Task to archive",
+			};
+
+			const dependentTask: Task = {
+				id: "task-8",
+				title: "Dependent task",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-07-07",
+				labels: [],
+				dependencies: ["task-7"],
+				references: ["TASK-7", "https://example.com/tasks/task-7"],
+				description: "Task that references archive target",
+			};
+
+			await core.createTask(archiveTarget);
+			await core.createTask(dependentTask);
+			await core.archiveTask("task-7");
+
+			const updatedTask = await core.filesystem.loadTask("task-8");
+			expect(updatedTask?.dependencies).toEqual([]);
+			expect(updatedTask?.references).toEqual(["https://example.com/tasks/task-7"]);
+
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(true);
+		});
+	});
+
+	describe("Draft operations", () => {
+		beforeEach(async () => {
+			// Set autoCommit to false
+			const config = await core.filesystem.loadConfig();
+			if (config) {
+				config.autoCommit = false;
+				await core.filesystem.saveConfig(config);
+			}
+		});
+
+		it("should respect autoCommit config for draft operations", async () => {
+			await core.createTaskFromInput(
+				{
+					title: "Test Draft",
+					status: "Draft",
+					description: "Test description",
+				},
+				false,
+			);
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+
+		it("should respect autoCommit config for promote draft operations", async () => {
+			// First create a draft with explicit commit
+			const { task: draft } = await core.createTaskFromInput(
+				{
+					title: "Test Draft",
+					status: "Draft",
+					description: "Test description",
+				},
+				true,
+			);
+
+			// Promote the draft (should not auto-commit)
+			await core.promoteDraft(draft.id);
+
+			// Check that there are uncommitted changes
+			const git = await core.getGitOps();
+			const isClean = await git.isClean();
+			expect(isClean).toBe(false);
+		});
+	});
+});

@@ -1,0 +1,137 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { Core } from "../index.ts";
+import { initializeTestProject, isWindows } from "./test-utils.ts";
+
+let TEST_DIR: string;
+
+describe("Docs recursive listing and ID generation", () => {
+	const itIfSymlinks = isWindows() ? it.skip : it;
+
+	beforeEach(async () => {
+		TEST_DIR = join(process.cwd(), `.tmp-test-docs-${Math.random().toString(36).slice(2)}`);
+		await rm(TEST_DIR, { recursive: true, force: true });
+		await mkdir(TEST_DIR, { recursive: true });
+
+		// Init backlog project
+		const core = new Core(TEST_DIR);
+		await initializeTestProject(core, "Docs Test");
+
+		// Disable remote operations to simulate offline mode
+		const cfg = await core.filesystem.loadConfig();
+		if (cfg) {
+			cfg.remoteOperations = false;
+			await core.filesystem.saveConfig(cfg);
+		}
+	});
+
+	afterEach(async () => {
+		await rm(TEST_DIR, { recursive: true, force: true });
+	});
+
+	it("lists and views documents from subdirectories and generates unique IDs", async () => {
+		const core = new Core(TEST_DIR);
+
+		// Create docs in nested paths using Core API directly
+		await core.createDocument(
+			{ id: "doc-1", title: "Top", type: "other", createdDate: "2020-01-01", rawContent: "Top level doc" },
+			false,
+			"",
+		);
+		await core.createDocument(
+			{ id: "doc-2", title: "Nested A", type: "other", createdDate: "2020-01-02", rawContent: "Nested A content" },
+			false,
+			"guides",
+		);
+		await core.createDocument(
+			{ id: "doc-3", title: "Nested B", type: "other", createdDate: "2020-01-03", rawContent: "Nested B content" },
+			false,
+			"guides/sub",
+		);
+
+		// List should include all 3 documents
+		const docs = await core.filesystem.listDocuments();
+		const docIds = docs.map((d) => d.id);
+		expect(docIds).toContain("doc-1");
+		expect(docIds).toContain("doc-2");
+		expect(docIds).toContain("doc-3");
+
+		// View by id should work (verify document can be retrieved)
+		const doc2 = await core.getDocument("doc-2");
+		expect(doc2).not.toBeNull();
+		expect(doc2?.title).toBe("Nested A");
+
+		// Create doc-4 directly to test that IDs 1-3 are recognized
+		// (This verifies that listing works correctly for ID generation purposes)
+		await core.createDocument(
+			{ id: "doc-4", title: "Another", type: "other", createdDate: "2020-01-04", rawContent: "New doc content" },
+			false,
+			"guides",
+		);
+
+		// Verify doc-4 exists
+		const allDocs = await core.filesystem.listDocuments();
+		const hasDoc4 = allDocs.some((d) => d.id === "doc-4");
+		expect(hasDoc4).toBe(true);
+		expect(allDocs.length).toBe(4);
+	});
+
+	// `doc list` resolves the picked document through getDocumentContent, the same reader
+	// `doc view` uses. It used to match the selected id against filenames instead, which
+	// only recognised `<id> - <title>.md` at the top level.
+	it("reads document content for legacy title-only filenames and for subdirectories", async () => {
+		const core = new Core(TEST_DIR);
+
+		// Documents created before the id was added to the filename are stored as `<Title>.md`.
+		await writeFile(
+			join(core.filesystem.docsDir, "API-Guidelines.md"),
+			`---
+id: doc-1
+title: API Guidelines
+type: other
+created_date: 2020-01-01
+---
+
+Legacy title-only body
+`,
+		);
+		await core.createDocument(
+			{ id: "doc-2", title: "Nested", type: "other", createdDate: "2020-01-02", rawContent: "Nested body" },
+			false,
+			"guides/api",
+		);
+
+		const docs = await core.filesystem.listDocuments();
+		expect(docs.map((doc) => doc.path).sort()).toEqual(["API-Guidelines.md", "guides/api/doc-2 - Nested.md"]);
+
+		expect(await core.getDocumentContent("doc-1")).toContain("Legacy title-only body");
+		expect(await core.getDocumentContent("doc-2")).toContain("Nested body");
+	});
+
+	itIfSymlinks("includes documents from symlinked subdirectories", async () => {
+		const core = new Core(TEST_DIR);
+		const docsDir = core.filesystem.docsDir;
+		const externalDocsDir = join(TEST_DIR, "external-docs");
+		const linkedDir = join(docsDir, "external");
+
+		await mkdir(externalDocsDir, { recursive: true });
+		await writeFile(
+			join(externalDocsDir, "doc-99 - External.md"),
+			`---
+id: doc-99
+title: External Doc
+type: other
+created_date: 2020-01-01
+---
+
+External content
+`,
+		);
+
+		await symlink(externalDocsDir, linkedDir);
+
+		const docs = await core.filesystem.listDocuments();
+		expect(docs.some((doc) => doc.id === "doc-99")).toBe(true);
+	});
+});

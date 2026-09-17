@@ -1,0 +1,268 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { $ } from "bun";
+import { Core } from "../core/backlog.ts";
+import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+
+const readConfigFile = async (root: string): Promise<string> => {
+	const configPath = join(root, "backlog", "config.yml");
+	return await readFile(configPath, "utf8");
+};
+
+const writeConfigFile = async (root: string, content: string): Promise<void> => {
+	const configPath = join(root, "backlog", "config.yml");
+	await writeFile(configPath, content);
+};
+
+describe("Definition of Done", () => {
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("test-definition-of-done");
+		await mkdir(TEST_DIR, { recursive: true });
+		await $`git init -b main`.cwd(TEST_DIR).quiet();
+
+		const core = new Core(TEST_DIR);
+		await initializeTestProject(core, "DoD Test Project");
+	});
+
+	afterEach(async () => {
+		await safeCleanup(TEST_DIR);
+	});
+
+	it("loads and saves definition_of_done in config", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config).toBeTruthy();
+
+		if (config) {
+			config.definitionOfDone = ["Run tests", "Update docs"];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const reloaded = await core.filesystem.loadConfig();
+		expect(reloaded?.definitionOfDone).toEqual(["Run tests", "Update docs"]);
+
+		const rawConfig = await readConfigFile(TEST_DIR);
+		expect(rawConfig).toContain("definition_of_done");
+		expect(rawConfig).toContain("Run tests");
+	});
+
+	it("trims, drops empty values, and preserves order when saving definition_of_done", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config).toBeTruthy();
+
+		if (config) {
+			config.definitionOfDone = ["  First item  ", " ", "Second item", "", "  Third item"];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const reloaded = await core.filesystem.loadConfig();
+		expect(reloaded?.definitionOfDone).toEqual(["First item", "Second item", "Third item"]);
+
+		const rawConfig = await readConfigFile(TEST_DIR);
+		expect(rawConfig).toContain('definition_of_done: ["First item", "Second item", "Third item"]');
+	});
+
+	it("ignores non-string values when saving definition_of_done", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config).toBeTruthy();
+
+		if (config) {
+			config.definitionOfDone = ["  First item  ", 1, null, "", "Second item"] as unknown as string[];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const reloaded = await core.filesystem.loadConfig();
+		expect(reloaded?.definitionOfDone).toEqual(["First item", "Second item"]);
+
+		const rawConfig = await readConfigFile(TEST_DIR);
+		expect(rawConfig).toContain('definition_of_done: ["First item", "Second item"]');
+	});
+
+	it("round-trips saved definition_of_done entries with backslashes", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		const windowsCheck = String.raw`Run .\scripts\check.ps1`;
+		expect(config).toBeTruthy();
+
+		if (config) {
+			config.definitionOfDone = [windowsCheck];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const rawConfig = await readConfigFile(TEST_DIR);
+		expect(rawConfig).toContain(String.raw`definition_of_done: ["Run .\\scripts\\check.ps1"]`);
+
+		const reloaded = await core.filesystem.loadConfig();
+		expect(reloaded?.definitionOfDone).toEqual([windowsCheck]);
+	});
+
+	it("preserves quoted commas in flow-style definition_of_done entries", async () => {
+		await writeConfigFile(
+			TEST_DIR,
+			[
+				'project_name: "DoD Test Project"',
+				'definition_of_done: ["simple item", "item with, a comma, inside"]',
+				'statuses: ["To Do", "In Progress", "Done"]',
+				"labels: []",
+				"date_format: yyyy-mm-dd",
+				"",
+			].join("\n"),
+		);
+
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config?.definitionOfDone).toEqual(["simple item", "item with, a comma, inside"]);
+
+		const { task } = await core.createTaskFromInput({ title: "Flow DoD task" });
+		const saved = await core.filesystem.loadTask(task.id);
+		const body = saved?.rawContent ?? "";
+		expect(body).toContain("- [ ] #1 simple item");
+		expect(body).toContain("- [ ] #2 item with, a comma, inside");
+	});
+
+	it("preserves legacy flow-style definition_of_done entries with unescaped backslashes", async () => {
+		const scriptCheck = String.raw`Run .\scripts\check.ps1`;
+		const tempTasks = String.raw`Run C:\temp\tasks`;
+		await writeConfigFile(
+			TEST_DIR,
+			[
+				'project_name: "DoD Test Project"',
+				String.raw`definition_of_done: ["Run .\scripts\check.ps1", "Run C:\temp\tasks"]`,
+				'statuses: ["To Do", "In Progress", "Done"]',
+				"labels: []",
+				"date_format: yyyy-mm-dd",
+				"",
+			].join("\n"),
+		);
+
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config?.definitionOfDone).toEqual([scriptCheck, tempTasks]);
+
+		const { task } = await core.createTaskFromInput({ title: "Legacy Windows DoD task" });
+		const saved = await core.filesystem.loadTask(task.id);
+		const body = saved?.rawContent ?? "";
+		expect(body).toContain(`- [ ] #1 ${scriptCheck}`);
+		expect(body).toContain(`- [ ] #2 ${tempTasks}`);
+	});
+
+	it("parses block-style definition_of_done entries with adjacent blank lines", async () => {
+		await writeConfigFile(
+			TEST_DIR,
+			[
+				'project_name: "DoD Test Project"',
+				"definition_of_done:",
+				"",
+				"  - Tests pass",
+				"",
+				"  - Documentation updated",
+				'statuses: ["To Do", "In Progress", "Done"]',
+				"labels: []",
+				"date_format: yyyy-mm-dd",
+				"",
+			].join("\n"),
+		);
+
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config?.definitionOfDone).toEqual(["Tests pass", "Documentation updated"]);
+
+		const { task } = await core.createTaskFromInput({ title: "Block DoD task" });
+		const saved = await core.filesystem.loadTask(task.id);
+		const body = saved?.rawContent ?? "";
+		expect(body).toContain("- [ ] #1 Tests pass");
+		expect(body).toContain("- [ ] #2 Documentation updated");
+	});
+
+	it("treats an empty block-style definition_of_done key as an empty defaults list", async () => {
+		await writeConfigFile(
+			TEST_DIR,
+			[
+				'project_name: "DoD Test Project"',
+				"definition_of_done:",
+				"",
+				'statuses: ["To Do", "In Progress", "Done"]',
+				"labels: []",
+				"date_format: yyyy-mm-dd",
+				"",
+			].join("\n"),
+		);
+
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		expect(config?.definitionOfDone).toEqual([]);
+	});
+
+	it("applies Definition of Done defaults on create", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		if (config) {
+			config.definitionOfDone = ["Check formatting", "Add notes"];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const { task } = await core.createTaskFromInput({ title: "DoD task" });
+		const saved = await core.filesystem.loadTask(task.id);
+		expect(saved).not.toBeNull();
+		const body = saved?.rawContent ?? "";
+		expect(body).toContain("## Definition of Done");
+		expect(body).toContain("<!-- DOD:BEGIN -->");
+		expect(body).toContain("- [ ] #1 Check formatting");
+		expect(body).toContain("- [ ] #2 Add notes");
+	});
+
+	it("can disable Definition of Done defaults on create", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		if (config) {
+			config.definitionOfDone = ["Run tests"];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const { task } = await core.createTaskFromInput({
+			title: "DoD overrides",
+			disableDefinitionOfDoneDefaults: true,
+			definitionOfDoneAdd: ["Custom checklist"],
+		});
+		const saved = await core.filesystem.loadTask(task.id);
+		const body = saved?.rawContent ?? "";
+		expect(body).toContain("## Definition of Done");
+		expect(body).toContain("- [ ] #1 Custom checklist");
+		expect(body).not.toContain("Run tests");
+	});
+
+	it("supports add/remove/check/uncheck Definition of Done items", async () => {
+		const core = new Core(TEST_DIR);
+		const config = await core.filesystem.loadConfig();
+		if (config) {
+			config.definitionOfDone = ["First item"];
+			await core.filesystem.saveConfig(config);
+		}
+
+		const { task } = await core.createTaskFromInput({ title: "DoD edits" });
+
+		await core.editTask(task.id, { addDefinitionOfDone: [{ text: "Second item", checked: false }] });
+		let updated = await core.filesystem.loadTask(task.id);
+		expect(updated?.rawContent).toContain("- [ ] #1 First item");
+		expect(updated?.rawContent).toContain("- [ ] #2 Second item");
+
+		await core.editTask(task.id, { checkDefinitionOfDone: [2] });
+		updated = await core.filesystem.loadTask(task.id);
+		expect(updated?.rawContent).toContain("- [x] #2 Second item");
+
+		await core.editTask(task.id, { removeDefinitionOfDone: [1] });
+		updated = await core.filesystem.loadTask(task.id);
+		const body = updated?.rawContent ?? "";
+		expect(body).not.toContain("First item");
+		expect(body).toContain("- [x] #1 Second item");
+
+		await core.editTask(task.id, { uncheckDefinitionOfDone: [1] });
+		updated = await core.filesystem.loadTask(task.id);
+		expect(updated?.rawContent).toContain("- [ ] #1 Second item");
+	});
+});

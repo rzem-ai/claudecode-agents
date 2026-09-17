@@ -1,0 +1,288 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { $ } from "bun";
+import { Core } from "../core/backlog.ts";
+import { calculateNewOrdinal, DEFAULT_ORDINAL_STEP, resolveOrdinalConflicts } from "../core/reorder.ts";
+import { serializeTask } from "../markdown/serializer.ts";
+import type { Task } from "../types/index.ts";
+import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
+
+const item = (id: string, ordinal?: number) => ({ id, ordinal });
+
+let TEST_DIR: string;
+let core: Core;
+
+const FIXED_DATE = "2025-01-01 00:00";
+
+const buildTask = (id: string, status: string, ordinal?: number, overrides: Partial<Task> = {}): Task => ({
+	id,
+	title: `Task ${id}`,
+	status,
+	assignee: [],
+	createdDate: FIXED_DATE,
+	labels: [],
+	dependencies: [],
+	...(ordinal !== undefined ? { ordinal } : {}),
+	...overrides,
+});
+
+beforeEach(async () => {
+	TEST_DIR = createUniqueTestDir("reorder-utils");
+	await mkdir(TEST_DIR, { recursive: true });
+	await $`git init -b main`.cwd(TEST_DIR).quiet();
+	core = new Core(TEST_DIR);
+	await initializeTestProject(core, "Reorder Utilities Test Project");
+});
+
+afterEach(async () => {
+	await safeCleanup(TEST_DIR);
+});
+
+describe("calculateNewOrdinal", () => {
+	it("returns default step when no neighbors exist", () => {
+		const result = calculateNewOrdinal({});
+		expect(result.ordinal).toBe(DEFAULT_ORDINAL_STEP);
+		expect(result.requiresRebalance).toBe(false);
+	});
+
+	it("averages ordinals when both neighbors exist", () => {
+		const result = calculateNewOrdinal({
+			previous: item("a", 1000),
+			next: item("b", 3000),
+		});
+		expect(result.ordinal).toBe(2000);
+		expect(result.requiresRebalance).toBe(false);
+	});
+
+	it("flags rebalance when there is no gap between neighbors", () => {
+		const result = calculateNewOrdinal({
+			previous: item("a", 2000),
+			next: item("b", 2000),
+		});
+		expect(result.requiresRebalance).toBe(true);
+	});
+
+	it("appends step when dropping after the last task", () => {
+		const result = calculateNewOrdinal({
+			previous: item("a", 4000),
+		});
+		expect(result.ordinal).toBe(4000 + DEFAULT_ORDINAL_STEP);
+		expect(result.requiresRebalance).toBe(false);
+	});
+});
+
+describe("resolveOrdinalConflicts", () => {
+	it("returns empty array when ordinals are already increasing", () => {
+		const updates = resolveOrdinalConflicts([item("a", 1000), item("b", 2000), item("c", 3000)]);
+		expect(updates).toHaveLength(0);
+	});
+
+	it("reassigns duplicate or descending ordinals", () => {
+		const updates = resolveOrdinalConflicts([item("a", 1000), item("b", 1000), item("c", 2000)]);
+		expect(updates).toHaveLength(2);
+		expect(updates[0]).toEqual({ id: "b", ordinal: 2000 });
+		expect(updates[1]).toEqual({ id: "c", ordinal: 3000 });
+	});
+
+	it("fills in missing ordinals with default spacing", () => {
+		const updates = resolveOrdinalConflicts([item("a"), item("b"), item("c", 1500)]);
+		expect(updates).toHaveLength(3);
+		expect(updates[0]).toEqual({ id: "a", ordinal: DEFAULT_ORDINAL_STEP });
+		expect(updates[1]).toEqual({ id: "b", ordinal: DEFAULT_ORDINAL_STEP * 2 });
+		expect(updates[2]).toEqual({ id: "c", ordinal: DEFAULT_ORDINAL_STEP * 3 });
+	});
+
+	it("can force sequential reassignment when requested", () => {
+		const updates = resolveOrdinalConflicts([item("a", 1000), item("b", 2500), item("c", 4500)], {
+			forceSequential: true,
+		});
+		expect(updates).toHaveLength(2);
+		expect(updates[0]).toEqual({ id: "b", ordinal: 2000 });
+		expect(updates[1]).toEqual({ id: "c", ordinal: 3000 });
+	});
+});
+
+describe("Core.reorderTask", () => {
+	const createTasks = async (tasks: Array<[string, string, number?, Partial<Task>?]>) => {
+		for (const [id, status, ordinal, overrides] of tasks) {
+			await core.createTask(buildTask(id, status, ordinal, overrides), false);
+		}
+	};
+
+	it("preserves updatedDate when editing only ordinal", async () => {
+		await core.createTask(
+			buildTask("task-1", "To Do", 1000, {
+				updatedDate: "2025-01-02 12:00",
+			}),
+			false,
+		);
+
+		await core.updateTaskFromInput("task-1", { ordinal: 2000 }, false);
+
+		const updatedTask = await core.filesystem.loadTask("task-1");
+		expect(updatedTask?.ordinal).toBe(2000);
+		expect(updatedTask?.updatedDate).toBe("2025-01-02 12:00");
+	});
+
+	it("does not add updatedDate when editing only ordinal on a task without one", async () => {
+		await core.createTask(buildTask("task-1", "To Do", 1000), false);
+
+		await core.updateTaskFromInput("task-1", { ordinal: 2000 }, false);
+
+		const updatedTask = await core.filesystem.loadTask("task-1");
+		expect(updatedTask?.ordinal).toBe(2000);
+		expect(updatedTask?.updatedDate).toBeUndefined();
+	});
+
+	it("updates updatedDate when ordinal changes with another task field", async () => {
+		await core.createTask(
+			buildTask("task-1", "To Do", 1000, {
+				updatedDate: "2025-01-02 12:00",
+			}),
+			false,
+		);
+
+		await core.updateTaskFromInput("task-1", { ordinal: 2000, title: "Updated Task" }, false);
+
+		const updatedTask = await core.filesystem.loadTask("task-1");
+		const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+		expect(updatedTask?.title).toBe("Updated Task");
+		expect(updatedTask?.ordinal).toBe(2000);
+		expect(updatedTask?.updatedDate).toBe(now);
+	});
+
+	it("preserves updatedDate for ordinal-only bulk updates", async () => {
+		await createTasks([
+			[
+				"task-1",
+				"To Do",
+				1000,
+				{
+					updatedDate: "2025-01-02 12:00",
+				},
+			],
+			["task-2", "To Do", 2000],
+		]);
+
+		const task1 = await core.filesystem.loadTask("task-1");
+		const task2 = await core.filesystem.loadTask("task-2");
+		expect(task1).not.toBeNull();
+		expect(task2).not.toBeNull();
+		if (!task1 || !task2) {
+			throw new Error("Expected tasks to exist");
+		}
+
+		await core.updateTasksBulk(
+			[
+				{ ...task1, ordinal: 3000 },
+				{ ...task2, ordinal: 4000 },
+			],
+			"Sort To Do",
+			false,
+		);
+
+		const updatedTask1 = await core.filesystem.loadTask("task-1");
+		const updatedTask2 = await core.filesystem.loadTask("task-2");
+		expect(updatedTask1?.ordinal).toBe(3000);
+		expect(updatedTask1?.updatedDate).toBe("2025-01-02 12:00");
+		expect(updatedTask2?.ordinal).toBe(4000);
+		expect(updatedTask2?.updatedDate).toBeUndefined();
+	});
+
+	it("reorders within a column without touching unaffected tasks", async () => {
+		await createTasks([
+			["task-1", "To Do", 1000],
+			["task-2", "To Do", 2000],
+			[
+				"task-3",
+				"To Do",
+				3000,
+				{
+					updatedDate: "2025-01-02 12:00",
+				},
+			],
+		]);
+
+		const result = await core.reorderTask({
+			taskId: "task-3",
+			targetStatus: "To Do",
+			orderedTaskIds: ["task-1", "task-3", "task-2"],
+		});
+
+		expect(result.updatedTask.id).toBe("TASK-3");
+		expect(result.updatedTask.ordinal).toBeGreaterThan(1000);
+		expect(result.updatedTask.ordinal).toBeLessThan(2000);
+		expect(result.changedTasks.map((task) => task.id)).toEqual(["TASK-3"]);
+
+		const task2 = await core.filesystem.loadTask("task-2");
+		const task3 = await core.filesystem.loadTask("task-3");
+		expect(task2?.ordinal).toBe(2000);
+		expect(task3?.updatedDate).toBe("2025-01-02 12:00");
+	});
+
+	it("rebalances ordinals when collisions exist", async () => {
+		await createTasks([
+			["task-1", "To Do", 1000],
+			["task-2", "To Do", 1000],
+			["task-3", "To Do", 1000],
+		]);
+
+		const result = await core.reorderTask({
+			taskId: "task-3",
+			targetStatus: "To Do",
+			orderedTaskIds: ["task-1", "task-3", "task-2"],
+		});
+
+		expect(result.changedTasks.map((task) => task.id).sort()).toEqual(["TASK-2", "TASK-3"]);
+
+		const task1 = await core.filesystem.loadTask("task-1");
+		const task2 = await core.filesystem.loadTask("task-2");
+		const task3 = await core.filesystem.loadTask("task-3");
+		expect(task1?.ordinal).toBe(1000);
+		expect(task2?.ordinal).toBe(3000);
+		expect(task3?.ordinal).toBe(2000);
+	});
+
+	it("updates status and ordinal when moving across columns", async () => {
+		await createTasks([
+			["task-1", "To Do", 1000],
+			["task-2", "In Progress", 1000],
+			["task-3", "In Progress", 2000],
+		]);
+
+		const result = await core.reorderTask({
+			taskId: "task-1",
+			targetStatus: "In Progress",
+			orderedTaskIds: ["task-1", "task-2", "task-3"],
+		});
+
+		expect(result.updatedTask.status).toBe("In Progress");
+		expect(result.updatedTask.ordinal).toBeGreaterThan(0);
+		expect(result.changedTasks.map((task) => task.id)).toContain("TASK-1");
+
+		const task2 = await core.filesystem.loadTask("task-2");
+		const task3 = await core.filesystem.loadTask("task-3");
+		expect(task2?.ordinal).toBe(1000);
+		expect(task3?.ordinal).toBe(2000);
+	});
+
+	it("reorders tasks with legacy lowercase IDs", async () => {
+		await createTasks([
+			["task-1", "To Do", 1000],
+			["task-2", "To Do", 2000],
+		]);
+
+		const legacyTask = buildTask("task-3", "To Do", 3000);
+		const legacyPath = join(core.filesystem.tasksDir, "task-3 - Legacy Task.md");
+		await Bun.write(legacyPath, serializeTask(legacyTask));
+
+		const result = await core.reorderTask({
+			taskId: "task-3",
+			targetStatus: "To Do",
+			orderedTaskIds: ["task-1", "task-3", "task-2"],
+		});
+
+		expect(result.updatedTask.id).toBe("TASK-3");
+	});
+});

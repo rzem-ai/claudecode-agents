@@ -1,0 +1,445 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
+import { $ } from "bun";
+import { serializeDocument } from "../markdown/serializer.ts";
+import { McpServer } from "../mcp/server.ts";
+import { registerDocumentTools } from "../mcp/tools/documents/index.ts";
+import type { JsonSchema } from "../mcp/validation/validators.ts";
+import { DOCUMENT_TYPE_VALUES } from "../types/index.ts";
+import { createUniqueTestDir, initializeFilesystemTestProject, safeCleanup } from "./test-utils.ts";
+
+// Helper to extract text from MCP content (handles union types)
+const getText = (content: unknown[] | undefined, index = 0): string => {
+	const item = content?.[index] as { text?: string } | undefined;
+	return item?.text ?? "";
+};
+
+let TEST_DIR: string;
+let mcpServer: McpServer;
+
+async function loadConfig(server: McpServer) {
+	const config = await server.filesystem.loadConfig();
+	if (!config) {
+		throw new Error("Failed to load backlog configuration for tests");
+	}
+	return config;
+}
+
+async function enableGitTestProject(): Promise<void> {
+	await $`git init -b main`.cwd(TEST_DIR).quiet();
+
+	const config = await loadConfig(mcpServer);
+	config.filesystemOnly = false;
+	await mcpServer.filesystem.saveConfig(config);
+	await mcpServer.ensureConfigLoaded();
+}
+
+describe("MCP document tools", () => {
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("mcp-documents");
+		mcpServer = new McpServer(TEST_DIR, "Test instructions");
+		await mcpServer.filesystem.ensureBacklogStructure();
+
+		await initializeFilesystemTestProject(mcpServer, "Docs Project");
+		const config = await loadConfig(mcpServer);
+		registerDocumentTools(mcpServer, config);
+	});
+
+	afterEach(async () => {
+		const stopResult = await Promise.allSettled([mcpServer.stop()]);
+		const cleanupResult = await Promise.allSettled([safeCleanup(TEST_DIR)]);
+		const errors = [...stopResult, ...cleanupResult]
+			.filter((result): result is PromiseRejectedResult => result.status === "rejected")
+			.map((result) => result.reason);
+		if (errors.length === 1) throw errors[0];
+		if (errors.length > 1) throw new AggregateError(errors, "MCP server and fixture cleanup both failed");
+	});
+
+	it("creates and lists documents", async () => {
+		const createResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Engineering Guidelines",
+					content: "# Overview\n\nFollow the documented practices.",
+					path: "guides",
+					tags: ["engineering"],
+				},
+			},
+		});
+
+		const createText = getText(createResult.content);
+		expect(createText).toContain("Document created successfully.");
+		expect(createText).toContain("Document doc-1 - Engineering Guidelines");
+		expect(createText).toContain("Path: guides/doc-1 - Engineering-Guidelines.md");
+		expect(createText).toMatch(/Created: \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(UTC\)/);
+		expect(createText).toContain("Tags: engineering");
+		expect(createText).toContain("# Overview");
+
+		const listResult = await mcpServer.testInterface.callTool({
+			params: { name: "document_list", arguments: {} },
+		});
+
+		const listText = getText(listResult.content);
+		expect(listText).toContain("Documents:");
+		expect(listText).toContain("doc-1 - Engineering Guidelines");
+		expect(listText).toContain("path: guides/doc-1 - Engineering-Guidelines.md");
+		expect(listText).toMatch(/created: \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(UTC\)/);
+		expect(listText).toContain("tags: engineering");
+	});
+
+	it("exposes supported document type enums", async () => {
+		const tools = await mcpServer.testInterface.listTools();
+		const toolByName = new Map(tools.tools.map((tool) => [tool.name, tool]));
+
+		const createSchema = toolByName.get("document_create")?.inputSchema as JsonSchema | undefined;
+		const updateSchema = toolByName.get("document_update")?.inputSchema as JsonSchema | undefined;
+
+		expect(createSchema?.properties?.type?.enum).toEqual([...DOCUMENT_TYPE_VALUES]);
+		expect(updateSchema?.properties?.type?.enum).toEqual([...DOCUMENT_TYPE_VALUES]);
+	});
+
+	it("rejects unsupported document types", async () => {
+		const invalidCreate = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Invalid Type",
+					content: "Content",
+					type: "unexpected",
+				},
+			},
+		});
+
+		expect(invalidCreate.isError).toBe(true);
+		expect(getText(invalidCreate.content)).toContain(
+			"Field 'type' must be one of: readme, guide, specification, other",
+		);
+
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Valid Type",
+					content: "Content",
+					type: "guide",
+				},
+			},
+		});
+
+		const invalidUpdate = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_update",
+				arguments: {
+					id: "doc-1",
+					content: "Updated",
+					type: "unexpected",
+				},
+			},
+		});
+
+		expect(invalidUpdate.isError).toBe(true);
+		expect(getText(invalidUpdate.content)).toContain(
+			"Field 'type' must be one of: readme, guide, specification, other",
+		);
+	});
+
+	it("filters documents using substring search", async () => {
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Engineering Guidelines",
+					content: "Content",
+				},
+			},
+		});
+
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Product Strategy",
+					content: "Strategy content",
+				},
+			},
+		});
+
+		const filteredResult = await mcpServer.testInterface.callTool({
+			params: { name: "document_list", arguments: { search: "strat" } },
+		});
+
+		const filteredText = getText(filteredResult.content);
+		expect(filteredText).toContain("Documents:");
+		expect(filteredText).toContain("Product Strategy");
+		expect(filteredText).not.toContain("Engineering Guidelines");
+	});
+
+	it("views documents regardless of ID casing or padding", async () => {
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Runbook",
+					content: "Step 1: Do the thing.",
+				},
+			},
+		});
+
+		const withPrefix = await mcpServer.testInterface.callTool({
+			params: { name: "document_view", arguments: { id: "doc-1" } },
+		});
+		const withoutPrefix = await mcpServer.testInterface.callTool({
+			params: { name: "document_view", arguments: { id: "1" } },
+		});
+		const uppercase = await mcpServer.testInterface.callTool({
+			params: { name: "document_view", arguments: { id: "DOC-0001" } },
+		});
+		const zeroPadded = await mcpServer.testInterface.callTool({
+			params: { name: "document_view", arguments: { id: "0001" } },
+		});
+
+		const prefixText = getText(withPrefix.content);
+		const noPrefixText = getText(withoutPrefix.content);
+		const uppercaseText = getText(uppercase.content);
+		const zeroPaddedText = getText(zeroPadded.content);
+		expect(prefixText).toContain("Document doc-1 - Runbook");
+		expect(prefixText).toContain("Step 1: Do the thing.");
+		expect(noPrefixText).toContain("Document doc-1 - Runbook");
+		expect(uppercaseText).toContain("Document doc-1 - Runbook");
+		expect(zeroPaddedText).toContain("Document doc-1 - Runbook");
+	});
+
+	it("updates documents including title changes", async () => {
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Incident Response",
+					content: "Initial content",
+				},
+			},
+		});
+
+		const updateResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_update",
+				arguments: {
+					id: "DOC-0001",
+					title: "Incident Response Handbook",
+					content: "Updated procedures",
+					path: "runbooks",
+				},
+			},
+		});
+
+		const updateText = getText(updateResult.content);
+		expect(updateText).toContain("Document updated successfully.");
+		expect(updateText).toContain("Document doc-1 - Incident Response Handbook");
+		expect(updateText).toContain("Path: runbooks/doc-1 - Incident-Response-Handbook.md");
+		expect(updateText).toContain("Updated procedures");
+
+		const viewResult = await mcpServer.testInterface.callTool({
+			params: { name: "document_view", arguments: { id: "doc-1" } },
+		});
+		const viewText = getText(viewResult.content);
+		expect(viewText).toContain("Incident Response Handbook");
+		expect(viewText).toContain("Path: runbooks/doc-1 - Incident-Response-Handbook.md");
+		expect(viewText).toContain("Updated procedures");
+	});
+
+	it("rejects unsafe document paths", async () => {
+		const result = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Unsafe",
+					content: "Content",
+					path: "../outside",
+				},
+			},
+		});
+
+		expect(result.isError).toBe(true);
+		expect(getText(result.content)).toContain("Document path cannot include traversal segments.");
+	});
+
+	it("searches documents and includes formatted scores", async () => {
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: {
+					title: "Architecture Overview",
+					content: "Contains service topology details.",
+				},
+			},
+		});
+
+		const searchResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_search",
+				arguments: {
+					query: "architecture",
+				},
+			},
+		});
+
+		const searchText = getText(searchResult.content);
+		expect(searchText).toContain("Documents:");
+		expect(searchText).toMatch(/Architecture Overview/);
+		expect(searchText).toContain("doc-1 - Architecture Overview (doc-1 - Architecture-Overview.md)");
+		expect(searchText).toMatch(/\[score [0-1]\.\d{3}]/);
+	});
+
+	it("does not sweep unrelated staged or dirty files into document create auto-commits", async () => {
+		await enableGitTestProject();
+		const config = await loadConfig(mcpServer);
+		config.autoCommit = true;
+		await mcpServer.filesystem.saveConfig(config);
+		await mcpServer.ensureConfigLoaded();
+
+		await $`git add .`.cwd(TEST_DIR).quiet();
+		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
+
+		// A deletion staged moments earlier by an unrelated operation, outside the backlog dir.
+		await Bun.write(join(TEST_DIR, "UNRELATED.txt"), "keep me\n");
+		await $`git add UNRELATED.txt`.cwd(TEST_DIR).quiet();
+		await $`git commit -m "add unrelated file"`.cwd(TEST_DIR).quiet();
+		await $`git rm --quiet UNRELATED.txt`.cwd(TEST_DIR).quiet();
+
+		// A peer's untracked, unreviewed file sitting inside the backlog directory.
+		const peerPlanPath = join(mcpServer.filesystem.backlogDir, "plans", "peer-plan.md");
+		await Bun.write(peerPlanPath, "# Peer's in-progress plan\n");
+
+		const createResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: { title: "Architecture Overview", content: "Contains service topology details." },
+			},
+		});
+		expect(getText(createResult.content)).toContain("Document created successfully.");
+
+		const lastCommit = await mcpServer.git.getLastCommitMessage();
+		expect(lastCommit).toContain("backlog: Add document doc-1");
+
+		const { stdout: committedFilesRaw } = await $`git show --name-only --pretty=format:`.cwd(TEST_DIR).quiet();
+		const committedFiles = committedFilesRaw.toString();
+		expect(committedFiles).not.toContain("UNRELATED.txt");
+		expect(committedFiles).not.toContain("peer-plan.md");
+
+		const status = await mcpServer.git.getStatus();
+		expect(status).toContain("D  UNRELATED.txt");
+		expect(status).toContain("?? backlog/plans/");
+	});
+
+	it("does not sweep unrelated staged or dirty files into document update auto-commits", async () => {
+		await enableGitTestProject();
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: { title: "Incident Response", content: "Initial content" },
+			},
+		});
+
+		const config = await loadConfig(mcpServer);
+		config.autoCommit = true;
+		await mcpServer.filesystem.saveConfig(config);
+		await mcpServer.ensureConfigLoaded();
+
+		await $`git add .`.cwd(TEST_DIR).quiet();
+		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
+
+		await Bun.write(join(TEST_DIR, "UNRELATED.txt"), "keep me\n");
+		await $`git add UNRELATED.txt`.cwd(TEST_DIR).quiet();
+		await $`git commit -m "add unrelated file"`.cwd(TEST_DIR).quiet();
+		await $`git rm --quiet UNRELATED.txt`.cwd(TEST_DIR).quiet();
+
+		const peerPlanPath = join(mcpServer.filesystem.backlogDir, "plans", "peer-plan.md");
+		await Bun.write(peerPlanPath, "# Peer's in-progress plan\n");
+
+		const updateResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_update",
+				arguments: {
+					id: "DOC-0001",
+					title: "Incident Response Handbook",
+					content: "Updated procedures",
+					path: "runbooks",
+				},
+			},
+		});
+		expect(getText(updateResult.content)).toContain("Document updated successfully.");
+
+		const lastCommit = await mcpServer.git.getLastCommitMessage();
+		expect(lastCommit).toContain("backlog: Add document doc-1");
+
+		const { stdout: committedFilesRaw } = await $`git show --name-only --pretty=format:`.cwd(TEST_DIR).quiet();
+		const committedFiles = committedFilesRaw.toString();
+		expect(committedFiles).not.toContain("UNRELATED.txt");
+		expect(committedFiles).not.toContain("peer-plan.md");
+		// The old (pre-rename) path and the new path should both be part of this commit.
+		expect(committedFiles).toContain("backlog/docs/doc-1 - Incident-Response.md");
+		expect(committedFiles).toContain("backlog/docs/runbooks/doc-1 - Incident-Response-Handbook.md");
+
+		const status = await mcpServer.git.getStatus();
+		expect(status).toContain("D  UNRELATED.txt");
+		expect(status).toContain("?? backlog/plans/");
+	});
+
+	it("refuses to update a document whose ID matches more than one file", async () => {
+		await enableGitTestProject();
+		await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_create",
+				arguments: { title: "Primary document", content: "Initial content" },
+			},
+		});
+
+		const duplicatePath = join(mcpServer.filesystem.docsDir, "duplicates", "doc-01 - ZZZ-Duplicate.md");
+		await mkdir(join(mcpServer.filesystem.docsDir, "duplicates"), { recursive: true });
+		await Bun.write(
+			duplicatePath,
+			serializeDocument({
+				id: "doc-01",
+				title: "ZZZ Duplicate",
+				type: "other",
+				createdDate: "2026-08-02 00:00",
+				rawContent: "Duplicate content",
+			}),
+		);
+		await $`git add .`.cwd(TEST_DIR).quiet();
+		await $`git commit -m "Add duplicate documents"`.cwd(TEST_DIR).quiet();
+
+		const config = await loadConfig(mcpServer);
+		config.autoCommit = true;
+		await mcpServer.filesystem.saveConfig(config);
+		await mcpServer.ensureConfigLoaded();
+
+		const primaryPath = join(mcpServer.filesystem.docsDir, "doc-1 - Primary-document.md");
+		const primaryBefore = await Bun.file(primaryPath).text();
+		const duplicateBefore = await Bun.file(duplicatePath).text();
+
+		const updateResult = await mcpServer.testInterface.callTool({
+			params: {
+				name: "document_update",
+				arguments: {
+					id: "doc-1",
+					title: "Renamed document",
+					content: "Updated content",
+					path: "runbooks",
+				},
+			},
+		});
+		const message = getText(updateResult.content);
+		expect(updateResult.isError).toBe(true);
+		expect(message).toContain("Document ID doc-1 is ambiguous");
+		expect(message).toContain("doc-1 - Primary-document.md");
+		expect(message).toContain("duplicates/doc-01 - ZZZ-Duplicate.md");
+		expect(message).toContain("backlog doctor");
+
+		expect(await Bun.file(primaryPath).text()).toBe(primaryBefore);
+		expect(await Bun.file(duplicatePath).text()).toBe(duplicateBefore);
+		expect(await $`git status --short`.cwd(TEST_DIR).text()).not.toContain("backlog/docs/");
+	});
+});

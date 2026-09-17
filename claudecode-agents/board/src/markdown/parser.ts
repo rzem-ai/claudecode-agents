@@ -1,0 +1,266 @@
+import type { AcceptanceCriterion, Decision, Document, Milestone, ParsedMarkdown, Task } from "../types/index.ts";
+import { normalizeDueDate } from "../utils/due-date.ts";
+import { normalizePriorityValue } from "../utils/priority-config.ts";
+import { parseFrontmatter } from "./frontmatter.ts";
+import {
+	AcceptanceCriteriaManager,
+	CommentsManager,
+	DefinitionOfDoneManager,
+	extractStructuredSection,
+	STRUCTURED_SECTION_KEYS,
+} from "./structured-sections.ts";
+
+function normalizeFlowList(prefix: string, rawValue: string): string | null {
+	// Handle inline lists like assignee: [@user, "someone"]
+	const match = rawValue.match(/^\[(.*)\]\s*(#.*)?$/);
+	if (!match) return null;
+
+	const listBody = match[1] ?? "";
+	const comment = match[2];
+	const items = listBody
+		.split(",")
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0);
+
+	const normalizedItems = items.map((entry) => {
+		if (entry.startsWith("'") || entry.startsWith('"')) {
+			return entry;
+		}
+		if (entry.startsWith("@")) {
+			const escaped = entry.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+			return `"${escaped}"`;
+		}
+		return entry;
+	});
+
+	const trailingComment = comment ? ` ${comment}` : "";
+	return `${prefix}[${normalizedItems.join(", ")}]${trailingComment}`;
+}
+
+function preprocessFrontmatter(frontmatter: string): string {
+	return frontmatter
+		.split(/\r?\n/) // Handle both Windows (\r\n) and Unix (\n) line endings
+		.map((line) => {
+			// The key spelling matters: an unquoted timestamp left for YAML to resolve comes back as a
+			// Date with its written offset already discarded, so a due date read under a quoted key
+			// would land on a different day than the same value read under a bare one.
+			const dueDateMatch = line.match(/^(\s*(?:due_date|"due_date"|'due_date')\s*:\s*)(.*)$/);
+			if (dueDateMatch) {
+				const prefix = dueDateMatch[1] ?? "";
+				const raw = dueDateMatch[2] ?? "";
+				const scalarMatch = raw.match(/^(.*?)(\s+#.*)?$/);
+				const value = (scalarMatch?.[1] ?? raw).trim();
+				const comment = scalarMatch?.[2] ?? "";
+				const isYamlNull = /^(?:null|~)$/i.test(value);
+				if (value && !isYamlNull && !value.startsWith("'") && !value.startsWith('"')) {
+					return `${prefix}"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"${comment}`;
+				}
+			}
+
+			// Handle both assignee and reporter fields that start with @
+			const match = line.match(/^(\s*(?:assignee|reporter):\s*)(.*)$/);
+			if (!match) return line;
+
+			const prefix = match[1] ?? "";
+			const raw = match[2] ?? "";
+			const value = raw.trim();
+
+			const normalizedFlowList = normalizeFlowList(prefix, value);
+			if (normalizedFlowList !== null) {
+				return normalizedFlowList;
+			}
+
+			if (
+				value &&
+				!value.startsWith("[") &&
+				!value.startsWith("'") &&
+				!value.startsWith('"') &&
+				!value.startsWith("-")
+			) {
+				return `${prefix}"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+			}
+			return line;
+		})
+		.join("\n"); // Always join with \n for consistent YAML parsing
+}
+
+function normalizeDate(value: unknown): string {
+	if (!value) return "";
+	if (value instanceof Date) {
+		// Check if this Date object came from a date-only string (time is midnight UTC)
+		const hours = value.getUTCHours();
+		const minutes = value.getUTCMinutes();
+		const seconds = value.getUTCSeconds();
+
+		if (hours === 0 && minutes === 0 && seconds === 0) {
+			// This was likely a date-only value, preserve it as date-only
+			return value.toISOString().slice(0, 10);
+		}
+		// This has actual time information, preserve it
+		return value.toISOString().slice(0, 16).replace("T", " ");
+	}
+	const str = String(value)
+		.trim()
+		.replace(/^['"]|['"]$/g, "");
+	if (!str) return "";
+
+	// Check for datetime format first (YYYY-MM-DD HH:mm)
+	let match: RegExpMatchArray | null = str.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+	if (match) {
+		// Already in correct format, return as-is
+		return str;
+	}
+
+	// Check for ISO datetime format (YYYY-MM-DDTHH:mm)
+	match = str.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/);
+	if (match) {
+		// Convert T separator to space
+		return str.replace("T", " ");
+	}
+
+	// Check for date-only format (YYYY-MM-DD) - backward compatibility
+	match = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (match) {
+		return `${match[1]}-${match[2]}-${match[3]}`;
+	}
+
+	// Legacy date formats (date-only for backward compatibility)
+	match = str.match(/^(\d{2})-(\d{2})-(\d{2})$/);
+	if (match) {
+		const [day, month, year] = match.slice(1);
+		return `20${year}-${month}-${day}`;
+	}
+	match = str.match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+	if (match) {
+		const [day, month, year] = match.slice(1);
+		return `20${year}-${month}-${day}`;
+	}
+	match = str.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+	if (match) {
+		const [day, month, year] = match.slice(1);
+		return `20${year}-${month}-${day}`;
+	}
+	return str;
+}
+
+export function parseMarkdown(content: string): ParsedMarkdown {
+	// Updated regex to handle both Windows (\r\n) and Unix (\n) line endings
+	const fmRegex = /^---\r?\n([\s\S]*?)\r?\n---/;
+	const match = content.match(fmRegex);
+	let toParse = content;
+
+	if (match) {
+		const processed = preprocessFrontmatter(match[1] || "");
+		// Replace with consistent line endings
+		toParse = content.replace(fmRegex, () => `---\n${processed}\n---`);
+	}
+
+	const parsed = parseFrontmatter(toParse);
+	return {
+		frontmatter: parsed.data,
+		content: parsed.content.trim(),
+	};
+}
+
+export function parseTask(content: string): Task {
+	const { frontmatter, content: rawContent } = parseMarkdown(content);
+
+	const priority = normalizePriorityValue(frontmatter.priority ? String(frontmatter.priority) : undefined);
+
+	// Parse structured acceptance criteria (checked/text/index) from all sections
+	const structuredCriteria: AcceptanceCriterion[] = AcceptanceCriteriaManager.parseAllCriteria(rawContent);
+	const structuredDefinitionOfDone: AcceptanceCriterion[] = DefinitionOfDoneManager.parseAllCriteria(rawContent);
+	const comments = CommentsManager.parseAllComments(rawContent);
+
+	// Parse other sections
+	const descriptionSection = extractStructuredSection(rawContent, STRUCTURED_SECTION_KEYS.description) || "";
+	const planSection = extractStructuredSection(rawContent, STRUCTURED_SECTION_KEYS.implementationPlan) || undefined;
+	const notesSection = extractStructuredSection(rawContent, STRUCTURED_SECTION_KEYS.implementationNotes) || undefined;
+	const finalSummarySection = extractStructuredSection(rawContent, STRUCTURED_SECTION_KEYS.finalSummary) || undefined;
+
+	return {
+		id: String(frontmatter.id || ""),
+		title: String(frontmatter.title || ""),
+		status: String(frontmatter.status || ""),
+		assignee: Array.isArray(frontmatter.assignee)
+			? frontmatter.assignee.map(String)
+			: frontmatter.assignee
+				? [String(frontmatter.assignee)]
+				: [],
+		reporter: frontmatter.reporter ? String(frontmatter.reporter) : undefined,
+		createdDate: normalizeDate(frontmatter.created_date),
+		updatedDate: frontmatter.updated_date ? normalizeDate(frontmatter.updated_date) : undefined,
+		dueDate: normalizeDueDate(frontmatter.due_date, "due_date"),
+		labels: Array.isArray(frontmatter.labels) ? frontmatter.labels.map(String) : [],
+		milestone: frontmatter.milestone ? String(frontmatter.milestone) : undefined,
+		dependencies: Array.isArray(frontmatter.dependencies) ? frontmatter.dependencies.map(String) : [],
+		references: Array.isArray(frontmatter.references) ? frontmatter.references.map(String) : [],
+		documentation: Array.isArray(frontmatter.documentation) ? frontmatter.documentation.map(String) : [],
+		modifiedFiles: Array.isArray(frontmatter.modified_files) ? frontmatter.modified_files.map(String) : [],
+		rawContent,
+		acceptanceCriteriaItems: structuredCriteria,
+		definitionOfDoneItems: structuredDefinitionOfDone,
+		description: descriptionSection,
+		implementationPlan: planSection,
+		implementationNotes: notesSection,
+		comments,
+		finalSummary: finalSummarySection,
+		parentTaskId: frontmatter.parent_task_id ? String(frontmatter.parent_task_id) : undefined,
+		subtasks: Array.isArray(frontmatter.subtasks) ? frontmatter.subtasks.map(String) : undefined,
+		priority,
+		type: frontmatter.type ? String(frontmatter.type) : undefined,
+		project: frontmatter.project ? String(frontmatter.project) : undefined,
+		ordinal: frontmatter.ordinal !== undefined ? Number(frontmatter.ordinal) : undefined,
+		onStatusChange: frontmatter.onStatusChange ? String(frontmatter.onStatusChange) : undefined,
+	};
+}
+
+export function parseDecision(content: string): Decision {
+	const { frontmatter, content: rawContent } = parseMarkdown(content);
+
+	return {
+		id: String(frontmatter.id || ""),
+		title: String(frontmatter.title || ""),
+		date: normalizeDate(frontmatter.date),
+		status: String(frontmatter.status || "proposed") as Decision["status"],
+		context: extractSection(rawContent, "Context") || "",
+		decision: extractSection(rawContent, "Decision") || "",
+		consequences: extractSection(rawContent, "Consequences") || "",
+		alternatives: extractSection(rawContent, "Alternatives"),
+		rawContent, // Raw markdown content without frontmatter
+	};
+}
+
+export function parseDocument(content: string): Document {
+	const { frontmatter, content: rawContent } = parseMarkdown(content);
+
+	return {
+		id: String(frontmatter.id || ""),
+		title: String(frontmatter.title || ""),
+		type: String(frontmatter.type || "other") as Document["type"],
+		createdDate: normalizeDate(frontmatter.created_date),
+		updatedDate: frontmatter.updated_date ? normalizeDate(frontmatter.updated_date) : undefined,
+		rawContent,
+		tags: Array.isArray(frontmatter.tags) ? frontmatter.tags.map(String) : undefined,
+	};
+}
+
+export function parseMilestone(content: string): Milestone {
+	const { frontmatter, content: rawContent } = parseMarkdown(content);
+
+	return {
+		id: String(frontmatter.id || ""),
+		title: String(frontmatter.title || ""),
+		dueDate: normalizeDueDate(frontmatter.due_date, "due_date"),
+		description: extractSection(rawContent, "Description") || "",
+		rawContent,
+	};
+}
+
+function extractSection(content: string, sectionTitle: string): string | undefined {
+	// Normalize to LF for reliable matching across platforms
+	const src = content.replace(/\r\n/g, "\n");
+	const regex = new RegExp(`## ${sectionTitle}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, "i");
+	const match = src.match(regex);
+	return match?.[1]?.trim();
+}

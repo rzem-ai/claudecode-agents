@@ -1,0 +1,1148 @@
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import * as fsPromises from "node:fs/promises";
+import { mkdir, readdir, rename, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { FileSystem } from "../file-system/operations.ts";
+import { serializeTask } from "../markdown/serializer.ts";
+import type { BacklogConfig, Decision, Document, Task } from "../types/index.ts";
+import { createUniqueTestDir, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+
+describe("FileSystem", () => {
+	let filesystem: FileSystem;
+
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("test-backlog");
+		filesystem = new FileSystem(TEST_DIR);
+		await filesystem.ensureBacklogStructure();
+	});
+
+	afterEach(async () => {
+		await safeCleanup(TEST_DIR);
+	});
+
+	describe("ensureBacklogStructure", () => {
+		it("should create all required directories", async () => {
+			const expectedDirs = [
+				join(TEST_DIR, "backlog"),
+				join(TEST_DIR, "backlog", "tasks"),
+				join(TEST_DIR, "backlog", "drafts"),
+				join(TEST_DIR, "backlog", "archive", "tasks"),
+				join(TEST_DIR, "backlog", "archive", "drafts"),
+				join(TEST_DIR, "backlog", "docs"),
+				join(TEST_DIR, "backlog", "decisions"),
+			];
+
+			for (const dir of expectedDirs) {
+				const stats = await stat(dir);
+				expect(stats.isDirectory()).toBe(true);
+			}
+		});
+
+		it("should ignore EEXIST for existing directories", async () => {
+			const projectDir = join(TEST_DIR, "onedrive-project");
+			const expectedDirs = [
+				join(projectDir, "backlog"),
+				join(projectDir, "backlog", "tasks"),
+				join(projectDir, "backlog", "drafts"),
+				join(projectDir, "backlog", "completed"),
+				join(projectDir, "backlog", "archive", "tasks"),
+				join(projectDir, "backlog", "archive", "drafts"),
+				join(projectDir, "backlog", "milestones"),
+				join(projectDir, "backlog", "archive", "milestones"),
+				join(projectDir, "backlog", "docs"),
+				join(projectDir, "backlog", "decisions"),
+			];
+
+			for (const dir of expectedDirs) {
+				await mkdir(dir, { recursive: true });
+			}
+
+			const realMkdir = fsPromises.mkdir;
+			const existingDirs = new Set(expectedDirs);
+			const mkdirSpy = spyOn(fsPromises, "mkdir").mockImplementation(async (path, options) => {
+				if (existingDirs.has(String(path))) {
+					const error = new Error("file already exists") as NodeJS.ErrnoException;
+					error.code = "EEXIST";
+					throw error;
+				}
+
+				await realMkdir(path, options);
+			});
+
+			try {
+				const { FileSystem: MockedFileSystem } = await import(
+					`../file-system/operations.ts?eexist-directories=${Date.now()}`
+				);
+				const oneDriveFilesystem = new MockedFileSystem(projectDir);
+
+				await oneDriveFilesystem.ensureBacklogStructure();
+
+				for (const dir of expectedDirs) {
+					const stats = await stat(dir);
+					expect(stats.isDirectory()).toBe(true);
+				}
+			} finally {
+				mkdirSpy.mockRestore();
+			}
+		});
+
+		it("should not ignore EEXIST when the path is not a directory", async () => {
+			const projectDir = join(TEST_DIR, "file-conflict-project");
+			const backlogDir = join(projectDir, "backlog");
+			const tasksPath = join(backlogDir, "tasks");
+			await mkdir(backlogDir, { recursive: true });
+			await Bun.write(tasksPath, "not a directory");
+
+			const realMkdir = fsPromises.mkdir;
+			const mkdirSpy = spyOn(fsPromises, "mkdir").mockImplementation(async (path, options) => {
+				if (String(path) === tasksPath) {
+					const error = new Error("file already exists") as NodeJS.ErrnoException;
+					error.code = "EEXIST";
+					throw error;
+				}
+
+				await realMkdir(path, options);
+			});
+
+			try {
+				const { FileSystem: MockedFileSystem } = await import(`../file-system/operations.ts?eexist-file=${Date.now()}`);
+				const conflictFilesystem = new MockedFileSystem(projectDir);
+
+				await expect(conflictFilesystem.ensureBacklogStructure()).rejects.toMatchObject({ code: "EEXIST" });
+			} finally {
+				mkdirSpy.mockRestore();
+			}
+		});
+	});
+
+	describe("task operations", () => {
+		const sampleTask: Task = {
+			id: "task-1",
+			title: "Test Task",
+			status: "To Do",
+			assignee: ["@developer"],
+			reporter: "@manager",
+			createdDate: "2025-06-03",
+			labels: ["test"],
+			milestone: "v1.0",
+			dependencies: [],
+			description: "This is a test task",
+		};
+
+		it("should save and load a task", async () => {
+			await filesystem.saveTask(sampleTask);
+
+			const loadedTask = await filesystem.loadTask("task-1");
+			expect(loadedTask?.id).toBe("TASK-1"); // IDs are normalized to uppercase
+			expect(loadedTask?.title).toBe(sampleTask.title);
+			expect(loadedTask?.status).toBe(sampleTask.status);
+			expect(loadedTask?.description).toBe(sampleTask.description);
+		});
+
+		it("should return null for non-existent task", async () => {
+			const task = await filesystem.loadTask("non-existent");
+			expect(task).toBeNull();
+		});
+
+		it("does not read a longer legacy sibling for a shorter numeric ID", async () => {
+			await filesystem.saveTask({ ...sampleTask, id: "BACK-1-EXTRA", title: "Longer sibling" });
+
+			expect(await filesystem.loadTask("BACK-1")).toBeNull();
+			expect((await filesystem.loadTask("back-1-extra"))?.title).toBe("Longer sibling");
+		});
+
+		it("does not archive a longer legacy sibling for a shorter numeric ID", async () => {
+			await filesystem.saveTask({ ...sampleTask, id: "BACK-1-EXTRA", title: "Longer sibling" });
+
+			expect(await filesystem.archiveTask("BACK-1")).toBe(false);
+			expect((await filesystem.loadTask("BACK-1-EXTRA"))?.title).toBe("Longer sibling");
+			expect(await readdir(filesystem.archiveTasksDir)).toHaveLength(0);
+		});
+
+		it("does not complete a longer legacy sibling for a shorter numeric ID", async () => {
+			await filesystem.saveTask({ ...sampleTask, id: "BACK-1-EXTRA", title: "Longer sibling" });
+
+			expect(await filesystem.completeTask("BACK-1")).toBe(false);
+			expect((await filesystem.loadTask("BACK-1-EXTRA"))?.title).toBe("Longer sibling");
+			expect(await readdir(filesystem.completedDir)).toHaveLength(0);
+		});
+
+		it("does not delete a longer legacy sibling during numeric save cleanup", async () => {
+			await filesystem.saveTask({ ...sampleTask, id: "BACK-1-EXTRA", title: "Longer sibling" });
+			await filesystem.saveTask({ ...sampleTask, id: "BACK-1", title: "Numeric target" });
+
+			expect((await filesystem.loadTask("BACK-1"))?.title).toBe("Numeric target");
+			expect((await filesystem.loadTask("BACK-1-EXTRA"))?.title).toBe("Longer sibling");
+		});
+
+		it("should list all tasks", async () => {
+			await filesystem.saveTask(sampleTask);
+			await filesystem.saveTask({
+				...sampleTask,
+				id: "task-2",
+				title: "Second Task",
+			});
+
+			const tasks = await filesystem.listTasks();
+			expect(tasks).toHaveLength(2);
+			expect(tasks.map((t) => t.id)).toEqual(["TASK-1", "TASK-2"]); // IDs are normalized to uppercase
+		});
+
+		it("should list tasks even when one file has invalid frontmatter", async () => {
+			await filesystem.saveTask(sampleTask);
+			await filesystem.saveTask({
+				...sampleTask,
+				id: "task-2",
+				title: "Second Task",
+			});
+
+			const invalidPath = join(filesystem.tasksDir, "task-99 - invalid.md");
+			await Bun.write(
+				invalidPath,
+				`---
+id: task-99
+assignee: [@broken
+status: To Do
+title: Broken Task
+---
+
+Invalid content`,
+			);
+
+			const tasks = await filesystem.listTasks();
+			expect(tasks.map((t) => t.id)).toEqual(["TASK-1", "TASK-2"]); // IDs normalized to uppercase
+		});
+
+		it("should sort tasks numerically by ID", async () => {
+			// Create tasks with IDs that would sort incorrectly with string comparison
+			const taskIds = ["task-2", "task-10", "task-1", "task-20", "task-3"];
+			for (const id of taskIds) {
+				await filesystem.saveTask({
+					...sampleTask,
+					id,
+					title: `Task ${id}`,
+				});
+			}
+
+			const tasks = await filesystem.listTasks();
+			expect(tasks.map((t) => t.id)).toEqual(["TASK-1", "TASK-2", "TASK-3", "TASK-10", "TASK-20"]); // IDs normalized to uppercase
+		});
+
+		it("should sort tasks with decimal IDs correctly", async () => {
+			// Create tasks with decimal IDs
+			const taskIds = ["task-2.10", "task-2.2", "task-2", "task-1", "task-2.1"];
+			for (const id of taskIds) {
+				await filesystem.saveTask({
+					...sampleTask,
+					id,
+					title: `Task ${id}`,
+				});
+			}
+
+			const tasks = await filesystem.listTasks();
+			expect(tasks.map((t) => t.id)).toEqual(["TASK-1", "TASK-2", "TASK-2.1", "TASK-2.2", "TASK-2.10"]); // IDs normalized to uppercase
+		});
+
+		it("should filter tasks by status and assignee", async () => {
+			await filesystem.saveTask({
+				...sampleTask,
+				id: "task-1",
+				status: "To Do",
+				assignee: ["alice"],
+				title: "Task 1",
+			});
+			await filesystem.saveTask({
+				...sampleTask,
+				id: "task-2",
+				status: "Done",
+				assignee: ["bob"],
+				title: "Task 2",
+			});
+			await filesystem.saveTask({
+				...sampleTask,
+				id: "task-3",
+				status: "To Do",
+				assignee: ["bob"],
+				title: "Task 3",
+			});
+
+			const statusFiltered = await filesystem.listTasks({ status: "to do" });
+			expect(statusFiltered.map((t) => t.id)).toEqual(["TASK-1", "TASK-3"]); // IDs normalized to uppercase
+
+			const assigneeFiltered = await filesystem.listTasks({ assignee: "bob" });
+			expect(assigneeFiltered.map((t) => t.id)).toEqual(["TASK-2", "TASK-3"]); // IDs normalized to uppercase
+
+			const combinedFiltered = await filesystem.listTasks({ status: "to do", assignee: "bob" });
+			expect(combinedFiltered.map((t) => t.id)).toEqual(["TASK-3"]); // IDs normalized to uppercase
+		});
+
+		it("should archive a task", async () => {
+			await filesystem.saveTask(sampleTask);
+
+			const archived = await filesystem.archiveTask("task-1");
+			expect(archived).toBe(true);
+
+			const task = await filesystem.loadTask("task-1");
+			expect(task).toBeNull();
+
+			// Check that file exists in archive
+			const archiveFiles = await readdir(join(TEST_DIR, "backlog", "archive", "tasks"));
+			expect(archiveFiles.some((f) => f.startsWith("task-1"))).toBe(true);
+		});
+
+		it("should demote a task to drafts with new draft- ID", async () => {
+			await filesystem.saveTask(sampleTask);
+
+			const demoted = await filesystem.demoteTask("task-1");
+			expect(demoted).toBe(true);
+
+			// Task should be removed from tasks directory
+			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			expect(tasksFiles.some((f) => f.startsWith("task-1"))).toBe(false);
+
+			// Draft should exist with new draft- ID
+			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(true);
+
+			// Verify the demoted draft can be loaded and has correct ID
+			const demotedDraft = await filesystem.loadDraft("draft-1");
+			expect(demotedDraft?.id).toBe("DRAFT-1");
+			expect(demotedDraft?.title).toBe(sampleTask.title);
+		});
+	});
+
+	describe("draft operations", () => {
+		// Drafts now use DRAFT-X id format and draft-x filename prefix
+		const sampleDraft: Task = {
+			id: "draft-1",
+			title: "Draft Task",
+			status: "Draft",
+			assignee: [],
+			createdDate: "2025-06-07",
+			labels: [],
+			dependencies: [],
+			description: "Draft description",
+		};
+
+		it("should save and load a draft", async () => {
+			await filesystem.saveDraft(sampleDraft);
+
+			const loaded = await filesystem.loadDraft("draft-1");
+			expect(loaded?.id).toBe("DRAFT-1"); // IDs are normalized to uppercase
+			expect(loaded?.title).toBe(sampleDraft.title);
+		});
+
+		it("fails closed when loadDraft finds padded twins of one identity", async () => {
+			await filesystem.saveDraft(sampleDraft);
+			const draftsDir = await filesystem.getDraftsDir();
+			await Bun.write(
+				join(draftsDir, "draft-001 - Twin.md"),
+				serializeTask({
+					id: "DRAFT-001",
+					title: "Twin",
+					status: "Draft",
+					assignee: [],
+					createdDate: "2026-08-24 10:00",
+					labels: [],
+					dependencies: [],
+				}),
+			);
+
+			await expect(filesystem.loadDraft("DRAFT-1")).rejects.toThrow(/is ambiguous/);
+			await expect(filesystem.loadDraft("DRAFT-001")).rejects.toThrow(/draft-001 - Twin\.md/);
+			const files = (await readdir(draftsDir)).sort();
+			expect(files.some((file) => file.startsWith("draft-1 "))).toBe(true);
+			expect(files).toContain("draft-001 - Twin.md");
+			expect(await Bun.file(join(draftsDir, "draft-001 - Twin.md")).text()).toContain("Twin");
+		});
+
+		it("should list all drafts", async () => {
+			await filesystem.saveDraft(sampleDraft);
+			await filesystem.saveDraft({ ...sampleDraft, id: "draft-2", title: "Second" });
+
+			const drafts = await filesystem.listDrafts();
+			expect(drafts.map((d) => d.id).sort()).toEqual(["DRAFT-1", "DRAFT-2"]);
+		});
+
+		it("should promote a draft to tasks with new task- ID", async () => {
+			await filesystem.saveDraft(sampleDraft);
+
+			const promoted = await filesystem.promoteDraft("draft-1");
+			expect(promoted).toBe(true);
+
+			// Draft should be removed from drafts directory
+			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(false);
+
+			// Task should exist with new task- ID
+			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			expect(tasksFiles.some((f) => f.startsWith("task-1"))).toBe(true);
+
+			// Verify the promoted task can be loaded and has correct ID
+			const promotedTask = await filesystem.loadTask("task-1");
+			expect(promotedTask?.id).toBe("TASK-1");
+			expect(promotedTask?.title).toBe(sampleDraft.title);
+			expect(promotedTask?.status).toBe("To Do");
+		});
+
+		it("should promote a draft to the configured default status", async () => {
+			const customConfig: BacklogConfig = {
+				projectName: "Custom Default Status Project",
+				defaultStatus: "Ready",
+				statuses: ["Ready", "In Progress", "Done"],
+				labels: [],
+				milestones: [],
+				dateFormat: "yyyy-MM-dd",
+			};
+			await filesystem.saveConfig(customConfig);
+			await filesystem.saveDraft(sampleDraft);
+
+			const promoted = await filesystem.promoteDraft("draft-1");
+			expect(promoted).toBe(true);
+
+			const promotedTask = await filesystem.loadTask("task-1");
+			expect(promotedTask?.id).toBe("TASK-1");
+			expect(promotedTask?.status).toBe("Ready");
+		});
+
+		it("should preserve a non-draft status when promoting a demoted task", async () => {
+			await filesystem.saveTask({
+				...sampleDraft,
+				id: "task-1",
+				title: "Demoted Task",
+				status: "In Progress",
+			});
+
+			const demoted = await filesystem.demoteTask("task-1");
+			expect(demoted).toBe(true);
+
+			const draft = await filesystem.loadDraft("draft-1");
+			expect(draft?.status).toBe("In Progress");
+
+			const promoted = await filesystem.promoteDraft("draft-1");
+			expect(promoted).toBe(true);
+
+			const promotedTask = await filesystem.loadTask("task-1");
+			expect(promotedTask?.id).toBe("TASK-1");
+			expect(promotedTask?.status).toBe("In Progress");
+		});
+
+		it("should promote draft with custom task prefix", async () => {
+			// Configure custom task prefix
+			const customConfig: BacklogConfig = {
+				projectName: "Custom Prefix Project",
+				statuses: ["To Do", "In Progress", "Done"],
+				labels: [],
+				milestones: [],
+				dateFormat: "yyyy-MM-dd",
+				prefixes: {
+					task: "JIRA",
+				},
+			};
+			await filesystem.saveConfig(customConfig);
+			await filesystem.saveDraft(sampleDraft);
+
+			const promoted = await filesystem.promoteDraft("draft-1");
+			expect(promoted).toBe(true);
+
+			// Draft should be removed
+			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(false);
+
+			// Task should exist with custom JIRA- prefix
+			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			expect(tasksFiles.some((f) => f.startsWith("jira-1"))).toBe(true);
+
+			// Verify the promoted task can be loaded with the custom prefix
+			const promotedTask = await filesystem.loadTask("jira-1");
+			expect(promotedTask?.id).toBe("JIRA-1");
+			expect(promotedTask?.title).toBe(sampleDraft.title);
+		});
+
+		it("should not reuse completed task IDs when promoting draft", async () => {
+			// Create a completed task directly in the completed directory
+			// This simulates a task that was created and completed before the draft
+			const completedDir = join(TEST_DIR, "backlog", "completed");
+			await mkdir(completedDir, { recursive: true });
+
+			const completedTask: Task = {
+				id: "TASK-1",
+				title: "Completed Task",
+				status: "Done",
+				assignee: [],
+				createdDate: "2025-01-01",
+				labels: [],
+				dependencies: [],
+			};
+			const content = serializeTask(completedTask);
+			await Bun.write(join(completedDir, "task-1 - Completed Task.md"), content);
+
+			// Verify no active tasks exist
+			const activeTasks = await filesystem.listTasks();
+			expect(activeTasks.length).toBe(0);
+
+			// Verify completed task exists
+			const completedTasks = await filesystem.listCompletedTasks();
+			expect(completedTasks.length).toBe(1);
+			expect(completedTasks[0]?.id).toBe("TASK-1");
+
+			// Create and promote a draft
+			await filesystem.saveDraft(sampleDraft);
+			const promoted = await filesystem.promoteDraft("draft-1");
+			expect(promoted).toBe(true);
+
+			// BUG: Currently returns TASK-1 because promoteDraft only checks active tasks
+			// Expected: Should return TASK-2 to avoid collision with completed task
+			const promotedTask = await filesystem.loadTask("task-2");
+			expect(promotedTask?.id).toBe("TASK-2");
+			expect(promotedTask?.title).toBe(sampleDraft.title);
+		});
+
+		it("should archive a draft", async () => {
+			await filesystem.saveDraft(sampleDraft);
+
+			const archived = await filesystem.archiveDraft("draft-1");
+			expect(archived?.sourcePath).toContain(join("backlog", "drafts"));
+			expect(archived?.targetPath).toContain(join("backlog", "archive", "drafts"));
+
+			const draft = await filesystem.loadDraft("draft-1");
+			expect(draft).toBeNull();
+
+			const files = await readdir(join(TEST_DIR, "backlog", "archive", "drafts"));
+			expect(files.some((f) => f.startsWith("draft-1"))).toBe(true);
+		});
+	});
+
+	describe("config operations", () => {
+		const sampleConfig: BacklogConfig = {
+			projectName: "Test Project",
+			defaultAssignee: ["@admin"],
+			defaultStatus: "To Do",
+			defaultReporter: undefined,
+			statuses: ["To Do", "In Progress", "Done"],
+			labels: ["bug", "feature"],
+			dateFormat: "yyyy-mm-dd",
+		};
+
+		it("should save and load config", async () => {
+			await filesystem.saveConfig(sampleConfig);
+
+			const loadedConfig = await filesystem.loadConfig();
+			expect(loadedConfig).toEqual(sampleConfig);
+		});
+
+		it("should return null for missing config", async () => {
+			// Create a fresh filesystem without any config
+			const freshFilesystem = new FileSystem(join(TEST_DIR, "fresh"));
+			await freshFilesystem.ensureBacklogStructure();
+
+			const config = await freshFilesystem.loadConfig();
+			expect(config).toBeNull();
+		});
+
+		it("should handle defaultReporter field", async () => {
+			const cfg: BacklogConfig = {
+				projectName: "Reporter",
+				defaultReporter: "@author",
+				statuses: ["To Do"],
+				labels: [],
+				dateFormat: "yyyy-mm-dd",
+			};
+
+			await filesystem.saveConfig(cfg);
+			const loaded = await filesystem.loadConfig();
+			expect(loaded?.defaultReporter).toBe("@author");
+		});
+	});
+
+	describe("directory accessors", () => {
+		it("should provide correct directory paths", () => {
+			expect(filesystem.tasksDir).toBe(join(TEST_DIR, "backlog", "tasks"));
+			expect(filesystem.archiveTasksDir).toBe(join(TEST_DIR, "backlog", "archive", "tasks"));
+			expect(filesystem.decisionsDir).toBe(join(TEST_DIR, "backlog", "decisions"));
+			expect(filesystem.docsDir).toBe(join(TEST_DIR, "backlog", "docs"));
+		});
+	});
+
+	describe("decision log operations", () => {
+		const sampleDecision: Decision = {
+			id: "decision-1",
+			title: "Use TypeScript",
+			date: "2025-06-07",
+			status: "accepted",
+			context: "Need type safety",
+			decision: "Use TypeScript",
+			consequences: "Better DX",
+			rawContent: "",
+		};
+
+		it("should save and load a decision log", async () => {
+			await filesystem.saveDecision(sampleDecision);
+
+			const loadedDecision = await filesystem.loadDecision("decision-1");
+			expect(loadedDecision?.id).toBe(sampleDecision.id);
+			expect(loadedDecision?.title).toBe(sampleDecision.title);
+			expect(loadedDecision?.status).toBe(sampleDecision.status);
+			expect(loadedDecision?.context).toBe(sampleDecision.context);
+		});
+
+		it("should return null for non-existent decision log", async () => {
+			const decision = await filesystem.loadDecision("non-existent");
+			expect(decision).toBeNull();
+		});
+
+		it("should sanitize decision filenames", async () => {
+			await filesystem.saveDecision({
+				...sampleDecision,
+				id: "decision-3",
+				title: "Use OAuth (v2)!",
+			});
+
+			const decisionFiles = await readdir(filesystem.decisionsDir);
+			expect(decisionFiles).toContain("decision-3 - Use-OAuth-v2.md");
+		});
+
+		it("should save decision log with alternatives", async () => {
+			const decisionWithAlternatives: Decision = {
+				...sampleDecision,
+				id: "decision-2",
+				alternatives: "Considered JavaScript",
+			};
+
+			await filesystem.saveDecision(decisionWithAlternatives);
+			const loaded = await filesystem.loadDecision("decision-2");
+
+			expect(loaded?.alternatives).toBe("Considered JavaScript");
+		});
+
+		it("should remove legacy decision filenames when resaving", async () => {
+			const legacyDecision: Decision = {
+				...sampleDecision,
+				id: "decision-legacy",
+				title: "Legacy Decision (OAuth)!",
+				decision: "First draft",
+			};
+
+			await filesystem.saveDecision(legacyDecision);
+
+			const files = await readdir(filesystem.decisionsDir);
+			const sanitized = files.find((f) => f.startsWith("decision-legacy -"));
+			expect(sanitized).toBe("decision-legacy - Legacy-Decision-OAuth.md");
+
+			const legacyFilename = "decision-legacy - Legacy-Decision-(OAuth)!.md";
+			await rename(join(filesystem.decisionsDir, sanitized as string), join(filesystem.decisionsDir, legacyFilename));
+
+			await filesystem.saveDecision({ ...legacyDecision, decision: "Updated decision" });
+
+			const finalFiles = await readdir(filesystem.decisionsDir);
+			expect(finalFiles).toEqual(["decision-legacy - Legacy-Decision-OAuth.md"]);
+
+			const loaded = await filesystem.loadDecision("decision-legacy");
+			expect(loaded?.decision).toBe("Updated decision");
+		});
+
+		it("should list decision logs", async () => {
+			await filesystem.saveDecision(sampleDecision);
+			const list = await filesystem.listDecisions();
+			expect(list).toHaveLength(1);
+			expect(list[0]?.id).toBe(sampleDecision.id);
+		});
+	});
+
+	describe("document operations", () => {
+		const sampleDocument: Document = {
+			id: "doc-1",
+			title: "API Guide",
+			type: "guide",
+			createdDate: "2025-06-07",
+			updatedDate: "2025-06-08",
+			rawContent: "This is the API guide content.",
+			tags: ["api", "guide"],
+		};
+
+		it("should save a document", async () => {
+			await filesystem.saveDocument(sampleDocument);
+
+			// Check that file was created
+			const docsFiles = await readdir(filesystem.docsDir);
+			expect(docsFiles.some((f) => f.includes("API-Guide"))).toBe(true);
+		});
+
+		it("should save document without optional fields", async () => {
+			const minimalDoc: Document = {
+				id: "doc-2",
+				title: "Simple Doc",
+				type: "readme",
+				createdDate: "2025-06-07",
+				rawContent: "Simple content.",
+			};
+
+			await filesystem.saveDocument(minimalDoc);
+
+			const docsFiles = await readdir(filesystem.docsDir);
+			expect(docsFiles.some((f) => f.includes("Simple-Doc"))).toBe(true);
+		});
+
+		it("should sanitize document filenames", async () => {
+			await filesystem.saveDocument({
+				...sampleDocument,
+				id: "doc-9",
+				title: "Docs (Guide)! #1",
+			});
+
+			const docsFiles = await readdir(filesystem.docsDir);
+			expect(docsFiles).toContain("doc-9 - Docs-Guide-1.md");
+		});
+
+		it("removes the previous document file when the title changes", async () => {
+			await filesystem.saveDocument(sampleDocument);
+
+			await filesystem.saveDocument({
+				...sampleDocument,
+				title: "API Guide Updated",
+				rawContent: "Updated content",
+			});
+
+			const docFiles = await Array.fromAsync(
+				new Bun.Glob("doc-*.md").scan({ cwd: filesystem.docsDir, followSymlinks: true }),
+			);
+			expect(docFiles).toHaveLength(1);
+			expect(docFiles[0]).toBe("doc-1 - API-Guide-Updated.md");
+		});
+
+		it("should list documents", async () => {
+			await filesystem.saveDocument(sampleDocument);
+			const list = await filesystem.listDocuments();
+			expect(list.some((d) => d.id === sampleDocument.id)).toBe(true);
+		});
+
+		it("should include relative path metadata when listing documents", async () => {
+			await filesystem.saveDocument(
+				{
+					...sampleDocument,
+					id: "doc-3",
+					title: "Nested Guide",
+				},
+				"guides",
+			);
+
+			const docs = await filesystem.listDocuments();
+			const nested = docs.find((doc) => doc.id === "doc-3");
+			expect(nested?.path).toBe("guides/doc-3 - Nested-Guide.md");
+		});
+
+		it("rejects unsafe document paths", async () => {
+			await expect(
+				filesystem.saveDocument(
+					{
+						...sampleDocument,
+						id: "doc-4",
+					},
+					"../outside",
+				),
+			).rejects.toThrow("Document path cannot include traversal segments.");
+
+			await expect(
+				filesystem.saveDocument(
+					{
+						...sampleDocument,
+						id: "doc-5",
+					},
+					"/tmp/docs",
+				),
+			).rejects.toThrow("Document path must be relative");
+		});
+
+		it("should load documents using flexible ID formats", async () => {
+			await filesystem.saveDocument({
+				...sampleDocument,
+				id: "doc-7",
+				title: "Operations Reference",
+				rawContent: "Ops content",
+			});
+
+			const uppercase = await filesystem.loadDocument("DOC-7");
+			expect(uppercase.id).toBe("doc-7");
+
+			const zeroPadded = await filesystem.loadDocument("0007");
+			expect(zeroPadded.id).toBe("doc-7");
+
+			await filesystem.saveDocument({
+				...sampleDocument,
+				id: "DOC-0009",
+				title: "Padded Uppercase",
+				rawContent: "Content",
+			});
+
+			const canonicalFiles = await Array.fromAsync(
+				new Bun.Glob("doc-*.md").scan({ cwd: filesystem.docsDir, followSymlinks: true }),
+			);
+			expect(canonicalFiles.some((file) => file.startsWith("doc-0009"))).toBe(true);
+		});
+	});
+
+	describe("edge cases", () => {
+		it("should handle task with task- prefix in id", async () => {
+			const taskWithPrefix: Task = {
+				id: "task-prefixed",
+				title: "Already Prefixed",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task with task- prefix",
+			};
+			const longerLegacyTask: Task = {
+				...taskWithPrefix,
+				id: "task-prefixed-extra",
+				title: "Longer Legacy ID",
+			};
+
+			await filesystem.saveTask(taskWithPrefix);
+			await filesystem.saveTask(longerLegacyTask);
+			const loaded = await filesystem.loadTask("task-prefixed");
+			const longerLoaded = await filesystem.loadTask("task-prefixed-extra");
+
+			expect(loaded?.id).toBe("TASK-PREFIXED"); // IDs are normalized to uppercase
+			expect(longerLoaded?.id).toBe("TASK-PREFIXED-EXTRA");
+		});
+
+		it("should handle task without task- prefix in id", async () => {
+			// ID without any prefix pattern (no letters-dash)
+			const taskWithoutPrefix: Task = {
+				id: "123",
+				title: "No Prefix",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task without prefix",
+			};
+
+			await filesystem.saveTask(taskWithoutPrefix);
+			const loaded = await filesystem.loadTask("task-123");
+
+			// IDs without prefix get the configured (or default) task prefix
+			expect(loaded?.id).toBe("TASK-123");
+		});
+
+		it("should preserve custom prefix in id", async () => {
+			// ID with a custom prefix pattern (letters-something)
+			const taskWithCustomPrefix: Task = {
+				id: "JIRA-456",
+				title: "Custom Prefix",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task with custom prefix",
+			};
+
+			await filesystem.saveTask(taskWithCustomPrefix);
+			const loaded = await filesystem.loadTask("jira-456");
+
+			// IDs with existing prefix are preserved (normalized to uppercase)
+			expect(loaded?.id).toBe("JIRA-456");
+		});
+
+		it("should return empty array when listing tasks in empty directory", async () => {
+			const tasks = await filesystem.listTasks();
+			expect(tasks).toEqual([]);
+		});
+
+		it("should return false when archiving non-existent task", async () => {
+			const result = await filesystem.archiveTask("non-existent");
+			expect(result).toBe(false);
+		});
+
+		it("should handle config with all optional fields", async () => {
+			const fullConfig: BacklogConfig = {
+				projectName: "Full Project",
+				defaultAssignee: ["@admin"],
+				defaultStatus: "To Do",
+				defaultReporter: undefined,
+				statuses: ["To Do", "In Progress", "Done"],
+				labels: ["bug", "feature", "enhancement"],
+				dateFormat: "yyyy-mm-dd",
+			};
+
+			await filesystem.saveConfig(fullConfig);
+			const loaded = await filesystem.loadConfig();
+
+			expect(loaded).toEqual(fullConfig);
+		});
+
+		it("should handle config with minimal fields", async () => {
+			const minimalConfig: BacklogConfig = {
+				projectName: "Minimal Project",
+				statuses: ["To Do", "Done"],
+				labels: [],
+				dateFormat: "yyyy-mm-dd",
+			};
+
+			await filesystem.saveConfig(minimalConfig);
+			const loaded = await filesystem.loadConfig();
+
+			expect(loaded?.projectName).toBe("Minimal Project");
+			expect(loaded?.defaultAssignee).toBeUndefined();
+			expect(loaded?.defaultStatus).toBeUndefined();
+		});
+
+		it("should sanitize filenames correctly", async () => {
+			const taskWithSpecialChars: Task = {
+				id: "task-special",
+				title: "Task/with\\special:chars?",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task with special characters in title",
+			};
+
+			await filesystem.saveTask(taskWithSpecialChars);
+			const loaded = await filesystem.loadTask("task-special");
+
+			expect(loaded?.title).toBe("Task/with\\special:chars?");
+		});
+
+		it("should preserve case in filenames", async () => {
+			const taskWithMixedCase: Task = {
+				id: "task-mixed",
+				title: "Fix Task List Ordering",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task with mixed case title",
+			};
+
+			await filesystem.saveTask(taskWithMixedCase);
+
+			// Check that the file exists with preserved case
+			const files = await readdir(filesystem.tasksDir);
+			const taskFile = files.find((f) => f.startsWith("task-mixed -"));
+			expect(taskFile).toBe("task-mixed - Fix-Task-List-Ordering.md");
+
+			// Verify the task can be loaded
+			const loaded = await filesystem.loadTask("task-mixed");
+			expect(loaded?.title).toBe("Fix Task List Ordering");
+		});
+
+		it("should strip punctuation from filenames", async () => {
+			const taskWithPunctuation: Task = {
+				id: "task-punct",
+				title: "Fix the user's login (OAuth)! #1",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Task with punctuation in the title",
+			};
+
+			await filesystem.saveTask(taskWithPunctuation);
+
+			const files = await readdir(filesystem.tasksDir);
+			const filename = files.find((f) => f.startsWith("task-punct -"));
+			expect(filename).toBe("task-punct - Fix-the-users-login-OAuth-1.md");
+		});
+
+		it("should load tasks with legacy filenames containing punctuation", async () => {
+			const legacyTask: Task = {
+				id: "task-legacy",
+				title: "Legacy user's login (OAuth)",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Legacy punctuation task",
+			};
+
+			await filesystem.saveTask(legacyTask);
+
+			const files = await readdir(filesystem.tasksDir);
+			const originalFilename = files.find((f) => f.startsWith("task-legacy -"));
+			expect(originalFilename).toBeDefined();
+
+			const legacyFilename = "task-legacy - Legacy-user's-login-(OAuth).md";
+			await rename(join(filesystem.tasksDir, originalFilename as string), join(filesystem.tasksDir, legacyFilename));
+
+			const loaded = await filesystem.loadTask("task-legacy");
+			expect(loaded?.title).toBe("Legacy user's login (OAuth)");
+		});
+
+		it("should sanitize a variety of problematic task titles", async () => {
+			const cases: Array<{ id: string; title: string; expected: string }> = [
+				{
+					id: "task-bad-1",
+					title: "Fix the user's login (OAuth)! #1",
+					expected: "Fix-the-users-login-OAuth-1",
+				},
+				{
+					id: "task-bad-2",
+					title: "Crazy!@#$%^&*()Name",
+					expected: "Crazy-Name",
+				},
+				{
+					id: "task-bad-3",
+					title: "File with <bad> |chars| and /slashes\\",
+					expected: "File-with-bad-chars-and-slashes",
+				},
+				{
+					id: "task-bad-4",
+					title: "Tabs\tand\nnewlines",
+					expected: "Tabs-and-newlines",
+				},
+				{
+					id: "task-bad-5",
+					title: "Edge -- dashes ???",
+					expected: "Edge-dashes",
+				},
+			];
+
+			for (const { id, title, expected } of cases) {
+				await filesystem.saveTask({
+					id,
+					title,
+					status: "To Do",
+					assignee: [],
+					createdDate: "2025-06-07",
+					labels: [],
+					dependencies: [],
+					description: "Sanitization test",
+				});
+
+				const files = await readdir(filesystem.tasksDir);
+				expect(files).toContain(`${id} - ${expected}.md`);
+			}
+		});
+
+		it("should avoid double dashes in filenames", async () => {
+			const weirdTask: Task = {
+				id: "task-dashes",
+				title: "Task -- with  -- multiple   dashes",
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Check double dashes",
+			};
+
+			await filesystem.saveTask(weirdTask);
+			const files = await readdir(filesystem.tasksDir);
+			const filename = files.find((f) => f.startsWith("task-dashes -"));
+			expect(filename).toBeDefined();
+			expect(filename?.includes("--")).toBe(false);
+		});
+	});
+
+	describe("punctuation-only titles", () => {
+		const punctuationOnlyTitle = "!!!";
+
+		it("names a task file with a placeholder title instead of an empty segment", async () => {
+			const task: Task = {
+				id: "task-punct-only",
+				title: punctuationOnlyTitle,
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Punctuation-only title",
+			};
+
+			await filesystem.saveTask(task);
+
+			const files = await readdir(filesystem.tasksDir);
+			expect(files).toContain("task-punct-only - untitled.md");
+			expect(await filesystem.getTaskWritePath(task)).toBe(join(filesystem.tasksDir, "task-punct-only - untitled.md"));
+			// The title itself is preserved in the file; only the filename uses the placeholder
+			expect((await filesystem.loadTask("task-punct-only"))?.title).toBe(punctuationOnlyTitle);
+		});
+
+		it("keeps the id parseable by the readers that split the task filename", async () => {
+			await filesystem.saveTask({
+				id: "task-punct-reader",
+				title: punctuationOnlyTitle,
+				status: "To Do",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Punctuation-only title",
+			});
+
+			const files = await readdir(filesystem.tasksDir);
+			const filename = files.find((f) => f.startsWith("task-punct-reader"));
+			expect(filename).toBeDefined();
+			// The content-store task watcher recovers the id by splitting on the first space
+			expect(filename?.split(" ")[0]).toBe("task-punct-reader");
+			// Duplicate-task repair refuses to rebuild a path whose filename has no " - " separator
+			expect(filename?.indexOf(" - ")).toBeGreaterThan(0);
+		});
+
+		it("names a draft file with a placeholder title", async () => {
+			await filesystem.saveDraft({
+				id: "draft-punct",
+				title: punctuationOnlyTitle,
+				status: "Draft",
+				assignee: [],
+				createdDate: "2025-06-07",
+				labels: [],
+				dependencies: [],
+				description: "Punctuation-only title",
+			});
+
+			const draftFiles = await readdir(await filesystem.getDraftsDir());
+			expect(draftFiles).toContain("draft-punct - untitled.md");
+		});
+
+		it("names a decision file with a placeholder title", async () => {
+			await filesystem.saveDecision({
+				id: "decision-punct",
+				title: punctuationOnlyTitle,
+				date: "2025-06-07",
+				status: "accepted",
+				context: "Punctuation-only title",
+				decision: "Use a placeholder",
+				consequences: "Filenames stay parseable",
+				rawContent: "",
+			});
+
+			const decisionFiles = await readdir(filesystem.decisionsDir);
+			expect(decisionFiles).toContain("decision-punct - untitled.md");
+		});
+
+		it("names a document file with a placeholder title and still dedupes it on resave", async () => {
+			const document: Document = {
+				id: "doc-punct",
+				title: punctuationOnlyTitle,
+				type: "guide",
+				createdDate: "2025-06-07",
+				updatedDate: "2025-06-08",
+				rawContent: "Original content",
+				tags: [],
+			};
+
+			await filesystem.saveDocument(document);
+			expect(await readdir(filesystem.docsDir)).toContain("doc-punct - untitled.md");
+
+			// Document save dedup matches an existing file by splitting the basename on " - "
+			await filesystem.saveDocument({ ...document, rawContent: "Updated content" });
+
+			const docFiles = await Array.fromAsync(
+				new Bun.Glob("doc-*.md").scan({ cwd: filesystem.docsDir, followSymlinks: true }),
+			);
+			expect(docFiles).toEqual(["doc-punct - untitled.md"]);
+		});
+	});
+});

@@ -1,0 +1,29 @@
+# Notice
+
+This package carries source from Backlog.md, https://github.com/MrLesk/Backlog.md,
+copyright (c) 2025 Backlog.md, under the MIT licence in `LICENSE`.
+
+Imported once at commit `aded8e254e6a0205b878cf07e631d1a592782040` (the 1.52.0
+line, 17 September 2026). It is a fork at a pin, not a subtree: upstream changes
+after that commit are ported by hand if wanted.
+
+Upstream's test suite at the pin, on marvin (Bun 1.3.10, macOS), 17 September 2026:
+2862 pass, 8 skip, 26 fail, 1 error, across 290 files. Twenty-two of the
+failures were in tests of the commander CLI, which is replaced rather than
+carried; the rest are recorded, not fixed. Task 1 re-runs the suite and
+replaces this line if the numbers differ on the importing machine.
+
+Removed, in the order the plan removed them:
+
+- root discovery by walking up and by git (`src/utils/find-backlog-root.ts`, `src/utils/runtime-cwd.ts`)
+- the commander CLI (`src/cli.ts`, `src/commands/`, `src/completions/`)
+- the git layer (`src/git/`, `src/core/cross-branch-tasks.ts`, auto-commit and remote operations)
+- the terminal UI (`src/ui/`, `src/board.ts` terminal format, `neo-neo-bblessed`)
+- project initialisation and instruction injection (`src/core/init.ts`, `src/agent-instructions.ts`, `src/guidelines/`, `src/readme.ts`)
+- duplicate-ID repair and the prefix and config migrations
+- editor, clipboard, browser-launch and MCP client setup helpers, the config watcher
+- the MCP workflow tool and resources and the init-required resource
+
+## Adjusted at import
+
+- `src/guidelines/project-manager-backlog.md` was a symlink into upstream's `.claude/agents/`; it is a plain copy here.

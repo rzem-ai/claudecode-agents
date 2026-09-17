@@ -1,0 +1,154 @@
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { $ } from "bun";
+import { Core } from "../index.ts";
+import { getTestCliPath } from "./test-cli.ts";
+import { createUniqueTestDir, initializeFilesystemTestProject, safeCleanup } from "./test-utils.ts";
+
+let TEST_DIR: string;
+let NON_BACKLOG_DIR: string | undefined;
+
+describe("CLI agents command", () => {
+	const cliPath = getTestCliPath();
+
+	beforeEach(async () => {
+		TEST_DIR = createUniqueTestDir("test-agents-cli");
+		NON_BACKLOG_DIR = undefined;
+		await mkdir(TEST_DIR, { recursive: true });
+
+		// Initialize git repo first
+		await $`git init`.cwd(TEST_DIR).quiet();
+
+		// Initialize backlog project using Core
+		const core = new Core(TEST_DIR);
+		await initializeFilesystemTestProject(core, "Agents Test Project");
+	});
+
+	afterEach(async () => {
+		await Promise.all([
+			...(NON_BACKLOG_DIR ? [rm(NON_BACKLOG_DIR, { recursive: true, force: true })] : []),
+			safeCleanup(TEST_DIR),
+		]);
+	});
+
+	it("should show help when no options are provided", async () => {
+		const result = await $`bun ${cliPath} agents`.cwd(TEST_DIR).quiet();
+
+		expect(result.exitCode).toBe(0);
+	});
+
+	it("should show help text with agents --help", async () => {
+		const result = await $`bun ${cliPath} agents --help`.cwd(TEST_DIR).quiet();
+		const output = result.stdout.toString();
+
+		expect(result.exitCode).toBe(0);
+		expect(output).toContain("manage the short Backlog.md CLI nudge in agent instruction files");
+		expect(output).toContain("--update-instructions");
+		expect(output).toContain("preserving existing content");
+		expect(output).toContain("Input schema:");
+		expect(output).toContain("--update-instructions: Boolean");
+		expect(output).toContain("Reads:");
+		expect(output).toContain("Project config and existing agent instruction files");
+		expect(output).toContain("Writes:");
+		expect(output).toContain("preserves existing content outside the managed block");
+		expect(output).toContain("Output:");
+		expect(output).toContain("Examples:");
+		expect(output).toContain("backlog agents --update-instructions");
+	});
+
+	it("should update selected agent instruction files", async () => {
+		// Test the underlying functionality directly instead of the interactive CLI
+		const core = new Core(TEST_DIR);
+		const { addAgentInstructions } = await import("../index.ts");
+
+		// Update AGENTS.md file
+		await expect(async () => {
+			await addAgentInstructions(TEST_DIR, core.gitOps, ["AGENTS.md"]);
+		}).not.toThrow();
+
+		// Verify the file was created
+		const agents = Bun.file(join(TEST_DIR, "AGENTS.md"));
+		expect(await agents.exists()).toBe(true);
+		const content = await agents.text();
+		expect(content).toContain("Backlog.md");
+	});
+
+	it("should handle user cancellation gracefully", async () => {
+		// Test that the function handles empty selection (cancellation) gracefully
+		const core = new Core(TEST_DIR);
+		const { addAgentInstructions } = await import("../index.ts");
+
+		// Test with empty array (simulates user cancellation)
+		await expect(async () => {
+			await addAgentInstructions(TEST_DIR, core.gitOps, []);
+		}).not.toThrow();
+
+		// No files should be created when selection is empty
+		const agents = Bun.file(join(TEST_DIR, "AGENTS.md"));
+		expect(await agents.exists()).toBe(false);
+	});
+
+	it("should fail when not in a backlog project", async () => {
+		// Use OS temp directory to ensure complete isolation from project
+		const tempDir = await import("node:os").then((os) => os.tmpdir());
+		NON_BACKLOG_DIR = join(tempDir, `test-non-backlog-${Date.now()}-${Math.random().toString(36).substring(7)}`);
+
+		// Create a temporary directory that's not a backlog project
+		await mkdir(NON_BACKLOG_DIR, { recursive: true });
+
+		// Initialize git repo
+		await $`git init`.cwd(NON_BACKLOG_DIR).quiet();
+
+		const result = await $`bun ${cliPath} agents --update-instructions`.cwd(NON_BACKLOG_DIR).nothrow().quiet();
+
+		expect(result.exitCode).toBe(1);
+	});
+
+	it("should update multiple selected files", async () => {
+		// Test updating multiple agent instruction files
+		const core = new Core(TEST_DIR);
+		const { addAgentInstructions } = await import("../index.ts");
+
+		// Test updating multiple files
+		await expect(async () => {
+			await addAgentInstructions(TEST_DIR, core.gitOps, ["AGENTS.md", "CLAUDE.md"]);
+		}).not.toThrow();
+
+		// Verify both files were created
+		const agents2 = Bun.file(join(TEST_DIR, "AGENTS.md"));
+		const claudeMd = Bun.file(join(TEST_DIR, "CLAUDE.md"));
+
+		expect(await agents2.exists()).toBe(true);
+		expect(await claudeMd.exists()).toBe(true);
+
+		const agentsContent = await agents2.text();
+		const claudeContent = await claudeMd.text();
+
+		expect(agentsContent).toContain("Backlog.md");
+		expect(claudeContent).toContain("Backlog.md");
+	});
+
+	it("should update existing files correctly", async () => {
+		// Test that existing files are updated correctly (idempotent)
+		const core = new Core(TEST_DIR);
+		const { addAgentInstructions } = await import("../index.ts");
+
+		// First, create a file
+		await addAgentInstructions(TEST_DIR, core.gitOps, ["AGENTS.md"]);
+
+		const agents3 = Bun.file(join(TEST_DIR, "AGENTS.md"));
+		expect(await agents3.exists()).toBe(true);
+		// Update it again - should be idempotent
+		await expect(async () => {
+			await addAgentInstructions(TEST_DIR, core.gitOps, ["AGENTS.md"]);
+		}).not.toThrow();
+
+		// File should still exist and have consistent content
+		expect(await agents3.exists()).toBe(true);
+		const updatedContent = await agents3.text();
+		expect(updatedContent).toContain("Backlog.md");
+		// Should be idempotent - content should be similar (may have minor differences)
+		expect(updatedContent.length).toBeGreaterThan(0);
+	});
+});

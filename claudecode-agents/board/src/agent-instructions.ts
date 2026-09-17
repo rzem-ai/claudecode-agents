@@ -1,0 +1,295 @@
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
+import { dirname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { CLAUDE_AGENT_CONTENT, CLI_AGENT_NUDGE, MCP_AGENT_NUDGE, README_GUIDELINES } from "./constants/index.ts";
+import type { GitOperations } from "./git/operations.ts";
+import { getVersion } from "./utils/version.ts";
+
+export type AgentInstructionFile =
+	| "AGENTS.md"
+	| "CLAUDE.md"
+	| "GEMINI.md"
+	| ".github/copilot-instructions.md"
+	| "README.md";
+
+export type AgentInstructionWriteAction = "created" | "updated" | "unchanged";
+
+export interface AgentInstructionWriteResult {
+	action: AgentInstructionWriteAction;
+	fileName: AgentInstructionFile;
+	filePath: string;
+}
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+
+async function loadContent(textOrPath: string): Promise<string> {
+	if (textOrPath.includes("\n")) return textOrPath;
+	try {
+		const path = isAbsolute(textOrPath) ? textOrPath : join(__dirname, textOrPath);
+		return await Bun.file(path).text();
+	} catch {
+		return textOrPath;
+	}
+}
+
+type GuidelineMarkerKind = "default" | "mcp";
+
+/**
+ * Gets the markers for an installed guideline block
+ */
+function getMarkers(kind: GuidelineMarkerKind = "default"): { start: string; end: string } {
+	const label = kind === "mcp" ? "BACKLOG.MD MCP GUIDELINES" : "BACKLOG.MD GUIDELINES";
+	return {
+		start: `<!-- ${label} START -->`,
+		end: `<!-- ${label} END -->`,
+	};
+}
+
+/**
+ * Checks if the Backlog.md guidelines are already present in the content
+ */
+function hasBacklogGuidelines(content: string): boolean {
+	const { start } = getMarkers();
+	return content.includes(start);
+}
+
+/**
+ * Builds the machine-readable version marker line embedded in every installed
+ * instruction block. Written at install/update time from the running binary's
+ * version so local instructions can later be compared against the bundled ones.
+ */
+function versionMarkerLine(version: string): string {
+	const marker = `backlog.md-instructions-version: ${version}`;
+	return `<!-- ${marker} -->`;
+}
+
+/**
+ * Wraps the Backlog.md guidelines with appropriate markers
+ */
+function wrapWithMarkers(content: string, version: string, kind: GuidelineMarkerKind = "default"): string {
+	const { start, end } = getMarkers(kind);
+	return `\n${start}\n${versionMarkerLine(version)}\n${content}\n${end}\n`;
+}
+
+function stripGuidelineSection(
+	content: string,
+	kind: GuidelineMarkerKind,
+): { content: string; removed: boolean; firstIndex?: number } {
+	const { start, end } = getMarkers(kind);
+	let removed = false;
+	let result = content;
+	let firstIndex: number | undefined;
+
+	while (true) {
+		const startIndex = result.indexOf(start);
+		if (startIndex === -1) {
+			break;
+		}
+
+		const endIndex = result.indexOf(end, startIndex);
+		if (endIndex === -1) {
+			break;
+		}
+
+		let removalStart = startIndex;
+		while (removalStart > 0 && (result[removalStart - 1] === " " || result[removalStart - 1] === "\t")) {
+			removalStart -= 1;
+		}
+		if (removalStart > 0 && result[removalStart - 1] === "\n") {
+			removalStart -= 1;
+			if (removalStart > 0 && result[removalStart - 1] === "\r") {
+				removalStart -= 1;
+			}
+		} else if (removalStart > 0 && result[removalStart - 1] === "\r") {
+			removalStart -= 1;
+		}
+
+		let removalEnd = endIndex + end.length;
+		if (removalEnd < result.length && result[removalEnd] === "\r") {
+			removalEnd += 1;
+		}
+		if (removalEnd < result.length && result[removalEnd] === "\n") {
+			removalEnd += 1;
+		}
+
+		if (firstIndex === undefined) {
+			firstIndex = removalStart;
+		}
+		result = result.slice(0, removalStart) + result.slice(removalEnd);
+		removed = true;
+	}
+
+	return { content: result, removed, firstIndex };
+}
+
+export async function addAgentInstructions(
+	projectRoot: string,
+	git?: GitOperations,
+	files: AgentInstructionFile[] = ["AGENTS.md", "CLAUDE.md", "GEMINI.md", ".github/copilot-instructions.md"],
+	autoCommit = false,
+): Promise<AgentInstructionWriteResult[]> {
+	const mapping: Record<AgentInstructionFile, string> = {
+		"AGENTS.md": CLI_AGENT_NUDGE,
+		"CLAUDE.md": CLI_AGENT_NUDGE,
+		"GEMINI.md": CLI_AGENT_NUDGE,
+		".github/copilot-instructions.md": CLI_AGENT_NUDGE,
+		"README.md": README_GUIDELINES,
+	};
+
+	const version = await getVersion();
+	const paths: string[] = [];
+	const results: AgentInstructionWriteResult[] = [];
+	for (const name of files) {
+		const content = await loadContent(mapping[name]);
+		const filePath = join(projectRoot, name);
+		let finalContent = "";
+		const fileExists = existsSync(filePath);
+		const action: AgentInstructionWriteAction = fileExists ? "updated" : "created";
+
+		// Check if file exists first to avoid Windows hanging issue
+		if (fileExists) {
+			try {
+				// On Windows, use synchronous read to avoid hanging
+				let existing: string;
+				if (process.platform === "win32") {
+					existing = readFileSync(filePath, "utf-8");
+				} else {
+					existing = await Bun.file(filePath).text();
+				}
+
+				const originalExisting = existing;
+				const mcpStripped = stripGuidelineSection(existing, "mcp");
+				if (mcpStripped.removed) {
+					existing = mcpStripped.content;
+				}
+
+				const defaultStripped = stripGuidelineSection(existing, "default");
+				if (defaultStripped.removed) {
+					const insertAt = defaultStripped.firstIndex ?? defaultStripped.content.length;
+					finalContent =
+						defaultStripped.content.slice(0, insertAt) +
+						wrapWithMarkers(content, version) +
+						defaultStripped.content.slice(insertAt);
+				} else if (hasBacklogGuidelines(existing)) {
+					// Guidelines already exist but could not be parsed, skip this file.
+					results.push({ action: "unchanged", fileName: name, filePath });
+					continue;
+				} else {
+					// Append Backlog.md guidelines with markers
+					if (!existing.endsWith("\n")) existing += "\n";
+					finalContent = existing + wrapWithMarkers(content, version);
+				}
+
+				if (finalContent === originalExisting) {
+					results.push({ action: "unchanged", fileName: name, filePath });
+					continue;
+				}
+			} catch (error) {
+				console.error(`Error reading existing file ${filePath}:`, error);
+				// If we can't read it, just use the new content with markers
+				finalContent = wrapWithMarkers(content, version);
+			}
+		} else {
+			// File doesn't exist, create with markers
+			finalContent = wrapWithMarkers(content, version);
+		}
+
+		await mkdir(dirname(filePath), { recursive: true });
+		await Bun.write(filePath, finalContent);
+		paths.push(filePath);
+		results.push({ action, fileName: name, filePath });
+	}
+
+	if (git && paths.length > 0 && autoCommit) {
+		await git.addFiles(paths);
+		await git.commitFiles("Add AI agent instructions", paths);
+	}
+
+	return results;
+}
+
+export { loadContent as _loadAgentGuideline };
+
+async function readExistingFile(filePath: string): Promise<string> {
+	if (process.platform === "win32") {
+		return readFileSync(filePath, "utf-8");
+	}
+	return await Bun.file(filePath).text();
+}
+
+export interface EnsureMcpGuidelinesResult {
+	changed: boolean;
+	created: boolean;
+	fileName: AgentInstructionFile;
+	filePath: string;
+}
+
+export async function ensureMcpGuidelines(
+	projectRoot: string,
+	fileName: AgentInstructionFile,
+): Promise<EnsureMcpGuidelinesResult> {
+	const filePath = join(projectRoot, fileName);
+	const fileExists = existsSync(filePath);
+	let existing = "";
+	let original = "";
+	let insertIndex: number | null = null;
+
+	if (fileExists) {
+		try {
+			existing = await readExistingFile(filePath);
+			original = existing;
+			const cliStripped = stripGuidelineSection(existing, "default");
+			if (cliStripped.removed && cliStripped.firstIndex !== undefined) {
+				insertIndex = cliStripped.firstIndex;
+			}
+			existing = cliStripped.content;
+			const mcpStripped = stripGuidelineSection(existing, "mcp");
+			if (mcpStripped.removed && mcpStripped.firstIndex !== undefined) {
+				insertIndex = mcpStripped.firstIndex;
+			}
+			existing = mcpStripped.content;
+		} catch (error) {
+			console.error(`Error reading existing file ${filePath}:`, error);
+			existing = "";
+		}
+	}
+
+	const nudgeBlock = wrapWithMarkers(MCP_AGENT_NUDGE, await getVersion(), "mcp");
+	let nextContent: string;
+	if (insertIndex !== null) {
+		const normalizedIndex = Math.max(0, Math.min(insertIndex, existing.length));
+		nextContent = existing.slice(0, normalizedIndex) + nudgeBlock + existing.slice(normalizedIndex);
+	} else {
+		nextContent = existing;
+		if (nextContent && !nextContent.endsWith("\n")) {
+			nextContent += "\n";
+		}
+		nextContent += nudgeBlock;
+	}
+
+	const finalContent = nextContent;
+	const changed = !fileExists || finalContent !== original;
+
+	await mkdir(dirname(filePath), { recursive: true });
+	if (changed) {
+		await Bun.write(filePath, finalContent);
+	}
+
+	return { changed, created: !fileExists, fileName, filePath };
+}
+
+/**
+ * Installs the Claude Code backlog agent to the project's .claude/agents directory
+ */
+export async function installClaudeAgent(projectRoot: string): Promise<void> {
+	const agentDir = join(projectRoot, ".claude", "agents");
+	const agentPath = join(agentDir, "project-manager-backlog.md");
+
+	// Create the directory if it doesn't exist
+	await mkdir(agentDir, { recursive: true });
+
+	// Write the agent content with the version marker appended
+	const versionLine = versionMarkerLine(await getVersion());
+	await Bun.write(agentPath, `${CLAUDE_AGENT_CONTENT.trimEnd()}\n\n${versionLine}\n`);
+}

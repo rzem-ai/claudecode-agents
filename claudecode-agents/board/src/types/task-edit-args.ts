@@ -1,0 +1,47 @@
+export interface TaskEditArgs {
+	title?: string;
+	dueDate?: string | null;
+	description?: string;
+	status?: string;
+	priority?: string;
+	type?: string;
+	project?: string;
+	milestone?: string | null;
+	labels?: string[];
+	addLabels?: string[];
+	removeLabels?: string[];
+	assignee?: string[];
+	ordinal?: number;
+	dependencies?: string[];
+	references?: string[];
+	addReferences?: string[];
+	removeReferences?: string[];
+	documentation?: string[];
+	addDocumentation?: string[];
+	removeDocumentation?: string[];
+	modifiedFiles?: string[];
+	implementationPlan?: string;
+	planSet?: string;
+	planAppend?: string[];
+	planClear?: boolean;
+	implementationNotes?: string;
+	notesSet?: string;
+	notesAppend?: string[];
+	notesClear?: boolean;
+	commentsAppend?: string[];
+	commentAuthor?: string;
+	finalSummary?: string;
+	finalSummaryAppend?: string[];
+	finalSummaryClear?: boolean;
+	acceptanceCriteriaSet?: string[];
+	acceptanceCriteriaAdd?: string[];
+	acceptanceCriteriaRemove?: number[];
+	acceptanceCriteriaCheck?: number[];
+	acceptanceCriteriaUncheck?: number[];
+	definitionOfDoneAdd?: string[];
+	definitionOfDoneRemove?: number[];
+	definitionOfDoneCheck?: number[];
+	definitionOfDoneUncheck?: number[];
+}
+
+export type TaskEditRequest = TaskEditArgs & { id: string };
