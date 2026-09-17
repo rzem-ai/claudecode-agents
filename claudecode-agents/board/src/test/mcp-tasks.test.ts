@@ -40,40 +40,24 @@ async function enableGitTestProject(): Promise<void> {
 	await mcpServer.ensureConfigLoaded();
 }
 
+/**
+ * The git layer is not carried, so the only boundary left to guard is the corpus loader:
+ * MCP task search must not fall back to loading the whole task corpus, and must not ask
+ * git where the repository is.
+ */
 function installCrossBranchTripwires(server: McpServer) {
-	const error = new Error("MCP task search crossed the branch-loading boundary");
+	const error = new Error("MCP task search crossed the corpus-loading boundary");
 	const loadTasks = spyOn(server, "loadTasks").mockRejectedValue(error);
-	const fetch = spyOn(server.gitOps, "fetch").mockRejectedValue(error);
-	const listRecentBranchTips = spyOn(server.gitOps, "listRecentBranchTips").mockRejectedValue(error);
-	const listRecentBranches = spyOn(server.gitOps, "listRecentBranches").mockRejectedValue(error);
-	const listRecentRemoteBranches = spyOn(server.gitOps, "listRecentRemoteBranches").mockRejectedValue(error);
-	const listFilesInTree = spyOn(server.gitOps, "listFilesInTree").mockRejectedValue(error);
-	const showFile = spyOn(server.gitOps, "showFile").mockRejectedValue(error);
 	const getRepositoryRoot = spyOn(server.gitOps, "getRepositoryRoot").mockRejectedValue(error);
-	const resolveCommit = spyOn(server.gitOps, "resolveCommit").mockRejectedValue(error);
 
 	return {
 		expectUntouched() {
 			expect(loadTasks).toHaveBeenCalledTimes(0);
-			expect(fetch).toHaveBeenCalledTimes(0);
-			expect(listRecentBranchTips).toHaveBeenCalledTimes(0);
-			expect(listRecentBranches).toHaveBeenCalledTimes(0);
-			expect(listRecentRemoteBranches).toHaveBeenCalledTimes(0);
-			expect(listFilesInTree).toHaveBeenCalledTimes(0);
-			expect(showFile).toHaveBeenCalledTimes(0);
 			expect(getRepositoryRoot).toHaveBeenCalledTimes(0);
-			expect(resolveCommit).toHaveBeenCalledTimes(0);
 		},
 		restore() {
 			loadTasks.mockRestore();
-			fetch.mockRestore();
-			listRecentBranchTips.mockRestore();
-			listRecentBranches.mockRestore();
-			listRecentRemoteBranches.mockRestore();
-			listFilesInTree.mockRestore();
-			showFile.mockRestore();
 			getRepositoryRoot.mockRestore();
-			resolveCommit.mockRestore();
 		},
 	};
 }
@@ -310,56 +294,6 @@ describe("MCP task tools (MVP)", () => {
 		expect(await mcpServer.filesystem.loadTask("BACK-1")).toBeNull();
 		const archivedTasks = await mcpServer.filesystem.listArchivedTasks();
 		expect(archivedTasks.map((task) => task.id)).toContain("BACK-1");
-	});
-
-	it("refreshes branch identities before a long-lived MCP mutation", async () => {
-		await enableGitTestProject();
-		const config = await loadConfig(mcpServer);
-		await mcpServer.filesystem.saveConfig({
-			...config,
-			checkActiveBranches: true,
-			remoteOperations: false,
-			prefixes: { ...config.prefixes, task: "back" },
-		});
-		const localTask: Task = {
-			id: "BACK-1",
-			title: "Local identity",
-			status: "To Do",
-			assignee: [],
-			createdDate: "2026-08-01",
-			labels: [],
-			dependencies: [],
-		};
-		await mcpServer.filesystem.saveTask(localTask);
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "Add local identity"`.cwd(TEST_DIR).quiet();
-
-		const initialView = await mcpServer.testInterface.callTool({
-			params: { name: "task_view", arguments: { id: "BACK-1" } },
-		});
-		expect(initialView.isError).not.toBe(true);
-
-		await $`git switch -c late-mcp-collision`.cwd(TEST_DIR).quiet();
-		await Bun.write(
-			join(mcpServer.filesystem.tasksDir, "back-1 - Late-MCP-collision.md"),
-			serializeTask({ ...localTask, title: "Late MCP collision" }),
-		);
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "Add late MCP collision"`.cwd(TEST_DIR).quiet();
-		await $`git switch main`.cwd(TEST_DIR).quiet();
-
-		const lateView = await mcpServer.testInterface.callTool({
-			params: { name: "task_view", arguments: { id: "BACK-1" } },
-		});
-		expect(lateView.isError).toBe(true);
-		expect(getText(lateView.content)).toContain("is ambiguous");
-
-		const editResult = await mcpServer.testInterface.callTool({
-			params: { name: "task_edit", arguments: { id: "BACK-1", title: "Wrong target" } },
-		});
-		expect(editResult.isError).toBe(true);
-		expect(getText(editResult.content)).toContain("is ambiguous");
-		expect((await mcpServer.filesystem.loadTask("BACK-1"))?.title).toBe("Local identity");
 	});
 
 	it("assigns default tail ordinals for task_create and preserves explicit ordinals", async () => {

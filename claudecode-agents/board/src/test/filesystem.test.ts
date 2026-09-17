@@ -530,7 +530,14 @@ Invalid content`,
 			await filesystem.saveConfig(sampleConfig);
 
 			const loadedConfig = await filesystem.loadConfig();
-			expect(loadedConfig).toEqual(sampleConfig);
+			expect(loadedConfig).toEqual({
+				...sampleConfig,
+				// The git layer is not carried: loadConfig forces filesystem-only on every config.
+				filesystemOnly: true,
+				autoCommit: false,
+				checkActiveBranches: false,
+				remoteOperations: false,
+			});
 		});
 
 		it("should return null for missing config", async () => {
@@ -874,7 +881,14 @@ Invalid content`,
 			await filesystem.saveConfig(fullConfig);
 			const loaded = await filesystem.loadConfig();
 
-			expect(loaded).toEqual(fullConfig);
+			expect(loaded).toEqual({
+				...fullConfig,
+				// The git layer is not carried: loadConfig forces filesystem-only on every config.
+				filesystemOnly: true,
+				autoCommit: false,
+				checkActiveBranches: false,
+				remoteOperations: false,
+			});
 		});
 
 		it("should handle config with minimal fields", async () => {

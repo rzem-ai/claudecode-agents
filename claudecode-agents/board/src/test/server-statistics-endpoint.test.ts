@@ -62,39 +62,6 @@ async function startStatisticsServer(): Promise<void> {
 	expect(serverPort).toBeGreaterThan(0);
 }
 
-async function restartWithStatisticsBranch(branchTask: Task): Promise<void> {
-	await server?.stop();
-	server = null;
-	const config = await filesystem.loadConfig();
-	if (!config) throw new Error("Expected statistics test config");
-	await filesystem.saveConfig({ ...config, checkActiveBranches: true });
-
-	await $`git init -b main`.cwd(testDir).quiet();
-	await $`git add backlog`.cwd(testDir).quiet();
-	await $`git commit -m "Add main statistics corpus"`.cwd(testDir).quiet();
-	await $`git switch -c statistics-shadow`.cwd(testDir).quiet();
-	await filesystem.saveTask(branchTask);
-	await $`git add backlog`.cwd(testDir).quiet();
-	await $`git commit -m "Add branch statistics task"`.cwd(testDir).quiet();
-	await $`git switch main`.cwd(testDir).quiet();
-	await startStatisticsServer();
-}
-
-async function addStatisticsBranchTask(task: Task): Promise<void> {
-	auxiliaryWorktreeDir = createUniqueTestDir("server-statistics-worktree");
-	await $`git worktree add ${auxiliaryWorktreeDir} statistics-shadow`.cwd(testDir).quiet();
-	try {
-		const branchFilesystem = new FileSystem(auxiliaryWorktreeDir);
-		await branchFilesystem.saveTask(task);
-		await $`git add backlog`.cwd(auxiliaryWorktreeDir).quiet();
-		await $`git commit -m "Move statistics branch ref"`.cwd(auxiliaryWorktreeDir).quiet();
-	} finally {
-		await $`git worktree remove --force ${auxiliaryWorktreeDir}`.cwd(testDir).quiet().nothrow();
-		await safeCleanup(auxiliaryWorktreeDir);
-		auxiliaryWorktreeDir = null;
-	}
-}
-
 describe("BacklogServer statistics endpoint", () => {
 	beforeEach(async () => {
 		testDir = createUniqueTestDir("server-statistics");
@@ -266,21 +233,6 @@ describe("BacklogServer statistics endpoint", () => {
 		// the second request then performs the normal cached working-copy reconciliation.
 		expect(activeCorpusLoads).toBe(3);
 		expect(completedCorpusLoads).toBe(3);
-	});
-
-	it("refreshes statistics after an active branch ref moves", async () => {
-		await restartWithStatisticsBranch(
-			createTask({ id: "TASK-10", title: "Branch statistics task", status: "In Progress", priority: "Urgent" }),
-		);
-		const initial = await requestStatistics();
-		expect(initial).toMatchObject({ totalTasks: 3, statusCounts: { "In Progress": 1 } });
-
-		await addStatisticsBranchTask(
-			createTask({ id: "TASK-11", title: "Moved branch statistics task", status: "In Progress", priority: "Low" }),
-		);
-
-		const refreshed = await requestStatistics();
-		expect(refreshed).toMatchObject({ totalTasks: 4, statusCounts: { "In Progress": 2 } });
 	});
 
 	it("keeps task and config generations coherent during a same-root config change", async () => {

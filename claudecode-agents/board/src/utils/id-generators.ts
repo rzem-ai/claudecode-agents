@@ -1,8 +1,8 @@
 import type { Core } from "../core/backlog.ts";
 
 /**
- * Generate the next available document ID by checking all branches and local documents
- * @param core Core instance for filesystem and git operations
+ * Generate the next available document ID from the local documents
+ * @param core Core instance for filesystem operations
  * @returns Promise<string> Next available document ID (e.g., "doc-001")
  */
 export async function generateNextDocId(core: Core): Promise<string> {
@@ -10,42 +10,6 @@ export async function generateNextDocId(core: Core): Promise<string> {
 	// Load local documents
 	const docs = await core.filesystem.listDocuments();
 	const allIds: string[] = [];
-
-	try {
-		const backlogDir = core.filesystem.backlogDirName;
-
-		// Skip remote operations if disabled
-		if (config?.remoteOperations === false) {
-			if (process.env.DEBUG) {
-				console.log("Remote operations disabled - generating ID from local documents only");
-			}
-		} else {
-			await core.gitOps.fetch();
-		}
-
-		const branches = await core.gitOps.listAllBranches();
-
-		// Load files from all branches in parallel
-		const branchFilePromises = branches.map(async (branch) => {
-			const files = await core.gitOps.listFilesInTree(branch, `${backlogDir}/docs`);
-			return files
-				.map((file) => {
-					const match = file.match(/doc-(\d+)/);
-					return match ? `doc-${match[1]}` : null;
-				})
-				.filter((id): id is string => id !== null);
-		});
-
-		const branchResults = await Promise.all(branchFilePromises);
-		for (const branchIds of branchResults) {
-			allIds.push(...branchIds);
-		}
-	} catch (error) {
-		// Suppress errors for offline mode or other git issues
-		if (process.env.DEBUG) {
-			console.error("Could not fetch remote document IDs:", error);
-		}
-	}
 
 	// Add local document IDs
 	for (const doc of docs) {
@@ -74,8 +38,8 @@ export async function generateNextDocId(core: Core): Promise<string> {
 }
 
 /**
- * Generate the next available decision ID by checking all branches and local decisions
- * @param core Core instance for filesystem and git operations
+ * Generate the next available decision ID from the local decisions
+ * @param core Core instance for filesystem operations
  * @returns Promise<string> Next available decision ID (e.g., "decision-001")
  */
 export async function generateNextDecisionId(core: Core): Promise<string> {
@@ -83,42 +47,6 @@ export async function generateNextDecisionId(core: Core): Promise<string> {
 	// Load local decisions
 	const decisions = await core.filesystem.listDecisions();
 	const allIds: string[] = [];
-
-	try {
-		const backlogDir = core.filesystem.backlogDirName;
-
-		// Skip remote operations if disabled
-		if (config?.remoteOperations === false) {
-			if (process.env.DEBUG) {
-				console.log("Remote operations disabled - generating ID from local decisions only");
-			}
-		} else {
-			await core.gitOps.fetch();
-		}
-
-		const branches = await core.gitOps.listAllBranches();
-
-		// Load files from all branches in parallel
-		const branchFilePromises = branches.map(async (branch) => {
-			const files = await core.gitOps.listFilesInTree(branch, `${backlogDir}/decisions`);
-			return files
-				.map((file) => {
-					const match = file.match(/decision-(\d+)/);
-					return match ? `decision-${match[1]}` : null;
-				})
-				.filter((id): id is string => id !== null);
-		});
-
-		const branchResults = await Promise.all(branchFilePromises);
-		for (const branchIds of branchResults) {
-			allIds.push(...branchIds);
-		}
-	} catch (error) {
-		// Suppress errors for offline mode or other git issues
-		if (process.env.DEBUG) {
-			console.error("Could not fetch remote decision IDs:", error);
-		}
-	}
 
 	// Add local decision IDs
 	for (const decision of decisions) {

@@ -225,6 +225,20 @@ function parseConfigListValue(content: string, key: ConfigListKey, configPath: s
 	throw configTypeError(configPath, key, parsed);
 }
 
+/**
+ * The git layer is not carried, so filesystem-only is the only mode this board has.
+ * Whatever config.yml says about auto-commit, branch scanning or remote operations,
+ * the config handed to callers says filesystem-only. Forcing it here — at the single
+ * point every reader goes through — is what makes the git stub unreachable.
+ */
+function forceFilesystemOnly(config: BacklogConfig): BacklogConfig {
+	config.filesystemOnly = true;
+	config.autoCommit = false;
+	config.checkActiveBranches = false;
+	config.remoteOperations = false;
+	return config;
+}
+
 const DEFAULT_CREATE_LOCK_TIMEOUT_MS = 30_000;
 const DEFAULT_CREATE_LOCK_RETRY_DELAY_MS = 100;
 const DEFAULT_CREATE_LOCK_STALE_MS = 10_000;
@@ -2018,7 +2032,7 @@ ${description || `Milestone: ${title}`}`,
 	async loadConfig(): Promise<BacklogConfig | null> {
 		// Return cached config if available
 		if (this.cachedConfig !== null) {
-			return this.cachedConfig;
+			return forceFilesystemOnly(this.cachedConfig);
 		}
 
 		const configPath = this.resolvedConfigPath;
@@ -2036,7 +2050,7 @@ ${description || `Milestone: ${title}`}`,
 
 		// A value Backlog cannot read is reported, not swallowed: callers must not silently
 		// fall back to defaults while the config file says something else.
-		const config = this.parseConfig(content);
+		const config = forceFilesystemOnly(this.parseConfig(content));
 		this.cachedConfig = config;
 		this.cachedConfigSnapshot = { path: configPath, content };
 		return config;

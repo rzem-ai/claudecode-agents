@@ -78,20 +78,6 @@ Test task for board integration.`,
 		expect(tasksById.get("TASK-1")?.title).toBe("Board Test Task");
 	});
 
-	it("should properly handle cross-branch task resolution", async () => {
-		// Test the function that was missing filesystem parameter
-		const { getLatestTaskStatesForIds } = await import("../core/cross-branch-tasks.ts");
-
-		const tasks = await core.filesystem.listTasks();
-		const taskIds = tasks.map((t) => t.id);
-
-		// This should not throw "fs is not defined" or parameter errors
-		const result = await getLatestTaskStatesForIds(core.gitOps, core.filesystem, taskIds);
-
-		expect(result).toBeInstanceOf(Map);
-		// The result may be empty in test environment without branches, but it shouldn't crash
-	});
-
 	it("should create ViewSwitcher with kanban view successfully", async () => {
 		// Test the specific ViewSwitcher initialization that was failing
 		const { ViewSwitcher } = await import("../ui/view-switcher.ts");

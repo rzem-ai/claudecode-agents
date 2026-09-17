@@ -113,13 +113,12 @@ export async function findCrossBranchDuplicateTaskIds(
 	snapshot?: TaskCorpusSnapshot,
 ): Promise<CrossBranchDuplicateFinding[]> {
 	const corpus = snapshot ?? (await core.getContentStore()).getTaskCorpusSnapshot();
-	const config = corpus.config ?? (await core.filesystem.loadConfig());
-	if (config?.checkActiveBranches === false) return [];
 	const { activeTasks, completedTasks } = corpus;
-	const currentBranch = await core.gitOps.getCurrentBranch();
+	// The git layer is not carried: there is no branch to name and no branch state to compare
+	// against, so every entry below sits on the one working copy and no finding can come out.
 	const stateEntries: BranchTaskStateEntry[] = corpus.branchStateEntries?.slice() ?? [];
 
-	const current = currentBranch ?? "current";
+	const current = "current";
 	for (const task of activeTasks) {
 		if (!task.filePath) continue;
 		stateEntries.push({

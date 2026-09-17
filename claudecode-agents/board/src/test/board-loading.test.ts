@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { $ } from "bun";
 import { Core } from "../core/backlog.ts";
 import type { BacklogConfig, Task } from "../types/index.ts";
@@ -83,75 +83,6 @@ describe("Board Loading with checkActiveBranches", () => {
 			expect(applySnapshotsMessage).toBeUndefined();
 		});
 
-		it("should perform cross-branch checking when checkActiveBranches is true", async () => {
-			// Update config to enable cross-branch checking (default)
-			const config = await core.filesystem.loadConfig();
-			if (!config) throw new Error("Config not loaded");
-			const updatedConfig: BacklogConfig = {
-				...config,
-				checkActiveBranches: true,
-				activeBranchDays: 7,
-			};
-			await core.filesystem.saveConfig(updatedConfig);
-
-			// Track progress messages
-			const progressMessages: string[] = [];
-			const tasks = await core.loadTasks((msg) => {
-				progressMessages.push(msg);
-			});
-
-			// Verify we got tasks
-			expect(tasks).toHaveLength(3);
-
-			// Verify we applied cross-branch state snapshots
-			const applySnapshotsMessage = progressMessages.find((msg) =>
-				msg.includes("Applying latest task states from branch scans..."),
-			);
-			expect(applySnapshotsMessage).toBeDefined();
-		});
-
-		it("should respect activeBranchDays configuration", async () => {
-			// Create a new branch with an old commit date
-			await $`git checkout -b old-branch`.cwd(TEST_DIR).quiet();
-			await core.createTask(createTestTask("task-4", "To Do"), false);
-			await $`git add .`.cwd(TEST_DIR).quiet();
-
-			// Commit with an old date (40 days ago)
-			const oldDate = new Date();
-			oldDate.setDate(oldDate.getDate() - 40);
-			const dateStr = oldDate.toISOString();
-			await $`GIT_AUTHOR_DATE="${dateStr}" GIT_COMMITTER_DATE="${dateStr}" git commit -m "Old task"`
-				.cwd(TEST_DIR)
-				.quiet();
-
-			await $`git checkout main`.cwd(TEST_DIR).quiet();
-
-			// Set activeBranchDays to 30 (should exclude the old branch)
-			const config = await core.filesystem.loadConfig();
-			if (!config) throw new Error("Config not loaded");
-			const updatedConfig: BacklogConfig = {
-				...config,
-				checkActiveBranches: true,
-				activeBranchDays: 30,
-			};
-			await core.filesystem.saveConfig(updatedConfig);
-
-			// Track progress messages
-			const progressMessages: string[] = [];
-			const tasks = await core.loadTasks((msg) => {
-				progressMessages.push(msg);
-			});
-
-			// The task-4 from old branch should not be included if branch checking is working
-			// However, since we're in main branch, we should only see the 3 main tasks
-			expect(tasks).toHaveLength(3);
-			expect(tasks.find((t) => t.id === "TASK-4")).toBeUndefined();
-
-			// Check that branch checking happened with the right days
-			const anyBranchMessage = progressMessages.find((msg) => msg.includes("branch"));
-			expect(anyBranchMessage).toBeDefined();
-		});
-
 		it("should handle cancellation via AbortSignal", async () => {
 			const controller = new AbortController();
 
@@ -169,71 +100,9 @@ describe("Board Loading with checkActiveBranches", () => {
 			const tasks = await core.loadTasks();
 			expect(tasks).toEqual([]);
 		});
-
-		it("should pass progress callbacks correctly", async () => {
-			const progressMessages: string[] = [];
-			const progressCallback = mock((msg: string) => {
-				progressMessages.push(msg);
-			});
-
-			await core.loadTasks(progressCallback);
-
-			// Verify callback was called
-			expect(progressCallback).toHaveBeenCalled();
-			expect(progressMessages.length).toBeGreaterThan(0);
-
-			// Should have some expected messages
-			const hasLoadingMessage = progressMessages.some(
-				(msg) => msg.includes("Loading") || msg.includes("Checking") || msg.includes("Skipping"),
-			);
-			expect(hasLoadingMessage).toBe(true);
-		});
 	});
 
 	describe("Config integration", () => {
-		it("should use default values when config properties are undefined", async () => {
-			// Save a minimal config without the branch-related settings
-			const minimalConfig: BacklogConfig = {
-				projectName: "Test Project",
-				statuses: ["To Do", "In Progress", "Done"],
-				defaultStatus: "To Do",
-				labels: [],
-				milestones: [],
-				dateFormat: "yyyy-mm-dd",
-			};
-			await core.filesystem.saveConfig(minimalConfig);
-
-			// Create a task to ensure we have something to load
-			await core.createTask(
-				{
-					id: "task-1",
-					title: "Test Task",
-					status: "To Do",
-					assignee: [],
-					createdDate: "2025-01-08",
-					labels: [],
-					dependencies: [],
-					rawContent: "Test",
-				},
-				false,
-			);
-
-			const progressMessages: string[] = [];
-			const tasks = await core.loadTasks((msg) => {
-				progressMessages.push(msg);
-			});
-
-			// Should still work with defaults
-			expect(tasks).toBeDefined();
-			expect(tasks.length).toBeGreaterThanOrEqual(0);
-
-			// When checkActiveBranches is undefined, it defaults to true, so should perform checking
-			const applySnapshotsMessage = progressMessages.find((msg) =>
-				msg.includes("Applying latest task states from branch scans..."),
-			);
-			expect(applySnapshotsMessage).toBeDefined();
-		});
-
 		it("should handle config with checkActiveBranches explicitly set to false", async () => {
 			const config = await core.filesystem.loadConfig();
 			if (!config) throw new Error("Config not loaded");

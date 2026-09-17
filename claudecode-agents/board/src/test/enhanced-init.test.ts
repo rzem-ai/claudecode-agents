@@ -43,7 +43,8 @@ describe("Enhanced init command", () => {
 		const existingConfig = await core.filesystem.loadConfig();
 		expect(existingConfig).toBeTruthy();
 		expect(existingConfig?.projectName).toBe("Test Project");
-		expect(existingConfig?.autoCommit).toBe(true);
+		// The git layer is not carried: auto-commit is forced off however the config was saved.
+		expect(existingConfig?.autoCommit).toBe(false);
 		expect(existingConfig?.defaultEditor).toBe("vim");
 		expect(existingConfig?.defaultPort).toBe(8080);
 
@@ -116,7 +117,9 @@ describe("Enhanced init command", () => {
 		const loadedConfig = await core.filesystem.loadConfig();
 		expect(loadedConfig).toBeTruthy();
 		expect(loadedConfig?.projectName).toBe("Legacy Project");
-		expect(loadedConfig?.autoCommit).toBeUndefined(); // Missing fields should be undefined, not cause errors
+		// Missing fields must not cause errors; auto-commit is forced off rather than left unset.
+		expect(loadedConfig?.autoCommit).toBe(false);
+		expect(loadedConfig?.defaultStatus).toBe("To Do");
 	});
 
 	test("should preserve existing statuses and labels during re-initialization", async () => {

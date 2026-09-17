@@ -165,7 +165,8 @@ describe("config watcher", () => {
 				for (const cachedConfig of cachedConfigs) {
 					expect(cachedConfig?.projectName).toBe(initialConfig.projectName);
 					expect(cachedConfig?.statuses).toEqual(initialConfig.statuses);
-					expect(cachedConfig?.checkActiveBranches).toBe(true);
+					// checkActiveBranches is no longer a usable marker here: loadConfig forces it off.
+					expect(cachedConfig?.prefixes?.task).toBe("BACK");
 					expect(cachedConfig?.prefixes?.task).toBe("BACK");
 				}
 				expect(published).toHaveLength(0);
@@ -407,7 +408,8 @@ describe("config watcher", () => {
 			await withTimeout(malformedPointerAttemptsExhausted, "malformed root pointer attempts");
 			expect(callbackCount).toBe(1);
 			expect((await rootFilesystem.loadConfig())?.projectName).toBe("Candidate");
-			expect((await rootFilesystem.loadConfig())?.checkActiveBranches).toBe(true);
+			// The malformed pointer's check_active_branches: false is no longer distinguishable:
+			// loadConfig forces the flag off on every config. The project name carries the check.
 			expect(rootFilesystem.backlogDirName).toBe("custom/a");
 			expect(rootFilesystem.configFilePath).toBe(rootConfigPath);
 

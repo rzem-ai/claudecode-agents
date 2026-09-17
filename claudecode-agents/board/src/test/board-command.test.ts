@@ -190,20 +190,4 @@ This is another test task for board testing.`,
 			}
 		});
 	});
-
-	describe("Cross-branch task resolution", () => {
-		it("should handle getLatestTaskStatesForIds with proper parameters", async () => {
-			// Test the function that was missing the filesystem parameter
-			const { getLatestTaskStatesForIds } = await import("../core/cross-branch-tasks.ts");
-
-			const tasks = await core.filesystem.listTasks();
-			const taskIds = tasks.map((t) => t.id);
-
-			// This should not throw "fs is not defined"
-			await expect(async () => {
-				const result = await getLatestTaskStatesForIds(core.gitOps, core.filesystem, taskIds);
-				expect(result).toBeInstanceOf(Map);
-			}).not.toThrow();
-		});
-	});
 });

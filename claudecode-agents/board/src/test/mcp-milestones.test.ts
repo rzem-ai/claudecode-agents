@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { join } from "node:path";
-import { $ } from "bun";
 import { McpServer } from "../mcp/server.ts";
 import { registerMilestoneTools } from "../mcp/tools/milestones/index.ts";
 import { registerTaskTools } from "../mcp/tools/tasks/index.ts";
@@ -44,15 +43,6 @@ title: "${escapedTitle}"
 ${description}
 `;
 	await Bun.write(join(mcpServer.filesystem.milestonesDir, filename), content);
-}
-
-async function enableGitTestProject(): Promise<void> {
-	await $`git init -b main`.cwd(TEST_DIR).quiet();
-
-	const config = await loadConfigOrThrow(server);
-	config.filesystemOnly = false;
-	await server.filesystem.saveConfig(config);
-	await server.ensureConfigLoaded();
 }
 
 describe("MCP milestone tools", () => {
@@ -453,76 +443,6 @@ describe("MCP milestone tools", () => {
 		expect(milestoneFiles).not.toContain("m-0 - release-1.0.md");
 	});
 
-	it("keeps git clean when renaming milestones with autoCommit enabled", async () => {
-		await enableGitTestProject();
-		await server.testInterface.callTool({
-			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
-		});
-		const config = await loadConfigOrThrow(server);
-		config.autoCommit = true;
-		await server.filesystem.saveConfig(config);
-		await server.ensureConfigLoaded();
-
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
-
-		const rename = await server.testInterface.callTool({
-			params: {
-				name: "milestone_rename",
-				arguments: { from: "Release 1.0", to: "Release 2.0", updateTasks: false },
-			},
-		});
-		expect(getText(rename.content)).toContain('Renamed milestone "Release 1.0" (m-0) → "Release 2.0" (m-0).');
-
-		const status = await server.git.getStatus();
-		expect(status.trim()).toBe("");
-		const lastCommit = await server.git.getLastCommitMessage();
-		expect(lastCommit).toContain("backlog: Rename milestone m-0");
-	});
-
-	it("preserves the original commit error when milestone rename rollback fails", async () => {
-		await enableGitTestProject();
-		await server.testInterface.callTool({
-			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
-		});
-		const config = await loadConfigOrThrow(server);
-		config.autoCommit = true;
-		await server.filesystem.saveConfig(config);
-		await server.ensureConfigLoaded();
-
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
-
-		const originalCommitFiles = server.git.commitFiles.bind(server.git);
-		const originalResetPaths = server.git.resetPaths.bind(server.git);
-		const originalRenameMilestone = server.filesystem.renameMilestone.bind(server.filesystem);
-		const commitError = new Error("simulated commit failure");
-		let renameCalls = 0;
-
-		server.git.commitFiles = (async () => {
-			throw commitError;
-		}) as typeof server.git.commitFiles;
-		server.git.resetPaths = (async () => {}) as typeof server.git.resetPaths;
-		server.filesystem.renameMilestone = (async (...args: Parameters<typeof server.filesystem.renameMilestone>) => {
-			renameCalls += 1;
-			if (renameCalls === 1) {
-				return await originalRenameMilestone(...args);
-			}
-			throw new Error("simulated rollback failure");
-		}) as typeof server.filesystem.renameMilestone;
-
-		try {
-			await expect(server.renameMilestone("Release 1.0", "Release 2.0", true)).rejects.toThrow(
-				"simulated commit failure",
-			);
-			expect(renameCalls).toBe(2);
-		} finally {
-			server.git.commitFiles = originalCommitFiles;
-			server.git.resetPaths = originalResetPaths;
-			server.filesystem.renameMilestone = originalRenameMilestone;
-		}
-	});
-
 	it("only rewrites the default description section when renaming milestones", async () => {
 		await server.testInterface.callTool({
 			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
@@ -550,98 +470,6 @@ describe("MCP milestone tools", () => {
 		expect(updatedContent).toContain("## Description\n\nMilestone: Release 2.0");
 		expect(updatedContent).toContain(`## Notes\n\n${notesLine}`);
 		expect(updatedContent).not.toContain("## Notes\n\nKeep reference Milestone: Release 2.0 in notes");
-	});
-
-	it("treats no-op milestone renames as successful without creating commits", async () => {
-		await enableGitTestProject();
-		await server.testInterface.callTool({
-			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
-		});
-		const config = await loadConfigOrThrow(server);
-		config.autoCommit = true;
-		await server.filesystem.saveConfig(config);
-		await server.ensureConfigLoaded();
-
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
-
-		const rename = await server.testInterface.callTool({
-			params: {
-				name: "milestone_rename",
-				arguments: { from: "Release 1.0", to: "Release 1.0", updateTasks: false },
-			},
-		});
-		expect(getText(rename.content)).toContain("No changes made");
-
-		const status = await server.git.getStatus();
-		expect(status.trim()).toBe("");
-		const lastCommit = await server.git.getLastCommitMessage();
-		expect(lastCommit).toBe("baseline");
-	});
-
-	it("does not include unrelated staged files in milestone auto-commits", async () => {
-		await enableGitTestProject();
-		await server.testInterface.callTool({
-			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
-		});
-		const config = await loadConfigOrThrow(server);
-		config.autoCommit = true;
-		await server.filesystem.saveConfig(config);
-		await server.ensureConfigLoaded();
-
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
-
-		await Bun.write(join(TEST_DIR, "UNRELATED.txt"), "keep staged\n");
-		await $`git add UNRELATED.txt`.cwd(TEST_DIR).quiet();
-
-		const rename = await server.testInterface.callTool({
-			params: {
-				name: "milestone_rename",
-				arguments: { from: "Release 1.0", to: "Release 2.0", updateTasks: false },
-			},
-		});
-		expect(getText(rename.content)).toContain('Renamed milestone "Release 1.0" (m-0) → "Release 2.0" (m-0).');
-
-		const lastCommit = await server.git.getLastCommitMessage();
-		expect(lastCommit).toContain("backlog: Rename milestone m-0");
-
-		const { stdout: committedFilesRaw } = await $`git show --name-only --pretty=format:`.cwd(TEST_DIR).quiet();
-		const committedFiles = committedFilesRaw.toString();
-		expect(committedFiles).not.toContain("UNRELATED.txt");
-		const status = await server.git.getStatus();
-		expect(status).toContain("A  UNRELATED.txt");
-	});
-
-	it("does not include unrelated staged files in milestone archive auto-commits", async () => {
-		await enableGitTestProject();
-		await server.testInterface.callTool({
-			params: { name: "milestone_add", arguments: { name: "Release 1.0" } },
-		});
-		const config = await loadConfigOrThrow(server);
-		config.autoCommit = true;
-		await server.filesystem.saveConfig(config);
-		await server.ensureConfigLoaded();
-
-		await $`git add .`.cwd(TEST_DIR).quiet();
-		await $`git commit -m "baseline"`.cwd(TEST_DIR).quiet();
-
-		await Bun.write(join(TEST_DIR, "UNRELATED.txt"), "keep staged\n");
-		await $`git add UNRELATED.txt`.cwd(TEST_DIR).quiet();
-
-		const archived = await server.testInterface.callTool({
-			params: { name: "milestone_archive", arguments: { name: "Release 1.0" } },
-		});
-		expect(getText(archived.content)).toContain('Archived milestone "Release 1.0"');
-
-		const lastCommit = await server.git.getLastCommitMessage();
-		expect(lastCommit).toContain("backlog: Archive milestone m-0");
-
-		const { stdout: committedFilesRaw } = await $`git show --name-only --pretty=format:`.cwd(TEST_DIR).quiet();
-		const committedFiles = committedFilesRaw.toString();
-		expect(committedFiles).not.toContain("UNRELATED.txt");
-		const status = await server.git.getStatus();
-		expect(status).toContain("A  UNRELATED.txt");
 	});
 
 	it("prefers milestone ID matches over title collisions", async () => {

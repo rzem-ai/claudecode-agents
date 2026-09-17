@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { chmod, mkdir, readdir, rmdir, unlink } from "node:fs/promises";
+import { chmod, mkdir, readdir, rmdir } from "node:fs/promises";
 import { join } from "node:path";
-import { $ } from "bun";
 import { Core } from "../core/backlog.ts";
 import {
 	applyDuplicateTaskIdRepair,
@@ -134,36 +133,6 @@ describe("duplicate task diagnosis", () => {
 			AmbiguousTaskIdError,
 		);
 		expect(await Promise.all([alphaPath, betaPath].map(async (path) => await Bun.file(path).text()))).toEqual(before);
-	});
-
-	it("reports path-distinct cross-branch collisions without preparing a repair", async () => {
-		await $`git init -b main`.cwd(testDir).quiet();
-		const config = await core.filesystem.loadConfig();
-		if (!config) throw new Error("Missing test config");
-		config.checkActiveBranches = true;
-		config.activeBranchDays = 30;
-		config.remoteOperations = false;
-		await core.filesystem.saveConfig(config);
-		const alphaPath = await writeTask(core.filesystem.tasksDir, "task-1 - Alpha.md", makeTask("TASK-1", "Alpha"));
-		await $`git add .`.cwd(testDir).quiet();
-		await $`git commit -m "main task"`.cwd(testDir).quiet();
-		await $`git switch -c feature`.cwd(testDir).quiet();
-		await unlink(alphaPath);
-		await writeTask(core.filesystem.tasksDir, "task-1 - Beta.md", makeTask("TASK-1", "Beta"));
-		await $`git add -A`.cwd(testDir).quiet();
-		await $`git commit -m "feature task"`.cwd(testDir).quiet();
-		await $`git switch main`.cwd(testDir).quiet();
-
-		const plan = await core.previewDuplicateTaskIdRepair({ includeBranches: true });
-		expect(plan.groups).toEqual([]);
-		expect(plan.changes).toEqual([]);
-		expect(plan.crossBranchFindings).toHaveLength(1);
-		expect(plan.crossBranchFindings[0]?.id).toBe("TASK-1");
-		expect(plan.crossBranchFindings[0]?.locations.map((location) => location.branch).sort()).toEqual([
-			"feature",
-			"main",
-		]);
-		expect(plan.repairable).toBe(false);
 	});
 });
 

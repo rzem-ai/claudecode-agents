@@ -11,7 +11,7 @@ import {
 	isCreateLockError,
 	newTaskLockError,
 } from "../file-system/operations.ts";
-import { type GitBranchTip, type GitIndexEntry, GitOperations } from "../git/operations.ts";
+import { type GitIndexEntry, GitOperations } from "../git/operations.ts";
 import { parseFrontmatter } from "../markdown/frontmatter.ts";
 import { parseTask } from "../markdown/parser.ts";
 import { assertSectionInputHasNoMarkerLines } from "../markdown/structured-sections.ts";
@@ -114,12 +114,7 @@ import {
 } from "./reorder.ts";
 import { SearchService } from "./search-service.ts";
 import { TaskIdentityIndex, type TaskIdentityRecord } from "./task-identity-index.ts";
-import {
-	BranchTaskLoader,
-	type BranchTaskStateEntry,
-	getBranchHistoryCutoff,
-	getTaskLoadingMessage,
-} from "./task-loader.ts";
+import type { BranchTaskStateEntry } from "./task-loader.ts";
 
 interface BlessedScreen {
 	program: {
@@ -158,19 +153,20 @@ interface CreatedTaskRollbackResult {
 	workingPathRestored: boolean;
 }
 
-const REMOTE_REF_REFRESH_INTERVAL_MS = 60_000;
-
 interface TaskCorpusLoadOptions {
 	progressCallback?: (msg: string) => void;
 	abortSignal?: AbortSignal;
 	includeCompleted?: boolean;
 	visibleCompleted?: boolean;
-	/** Set only by the ContentStore corpus loader, whose result becomes the shared cross-branch state. */
+	/** Set only by the ContentStore corpus loader, whose result becomes the shared task state. */
 	publishSharedState?: boolean;
-	/** Set by task ID allocation, which cannot trust the coalesced remote-refresh window. */
-	forceRemoteRefresh?: boolean;
 }
 
+/**
+ * `includeCrossBranch` no longer selects between branches - the git layer is not carried, so
+ * every task is local. It still selects between two readers: the shared ContentStore corpus
+ * (true, the default) and a throwaway index built straight off the working copy (false).
+ */
 interface TaskQueryOptions {
 	filters?: TaskListFilter;
 	query?: string;
@@ -182,14 +178,6 @@ interface TaskQueryOptions {
 interface TaskReadOptions {
 	includeCrossBranch?: boolean;
 	refreshCrossBranch?: boolean;
-}
-
-interface ActiveBranchSnapshot {
-	branchTips: readonly GitBranchTip[];
-	currentBranch: string;
-	fingerprint: string;
-	stabilityFingerprint: string;
-	settingsKey: string;
 }
 
 export type TuiTaskEditFailureReason =
@@ -382,22 +370,14 @@ export class Core {
 	private contentStore?: ContentStore;
 	private searchService?: SearchService;
 	private readonly enableWatchers: boolean;
-	private branchTaskLoader: BranchTaskLoader;
 	private projectGeneration = 0;
-	private activeBranchFingerprint: string | null = null;
-	private activeBranchSnapshotPromise: {
-		generation: number;
-		settingsKey: string;
-		promise: Promise<ActiveBranchSnapshot>;
-	} | null = null;
-	private activeBranchRefreshPromise: Promise<void> | null = null;
-	private remoteRefRefreshPromise: Promise<void> | null = null;
-	private lastRemoteRefRefreshAt = 0;
+	/** Settings key of the corpus a load last installed as the ContentStore's shared state. */
+	private sharedTaskStateKey: string | null = null;
+	private sharedTaskStateRefreshPromise: Promise<void> | null = null;
 
 	constructor(projectRoot: string, options?: { enableWatchers?: boolean }) {
 		this.fs = new FileSystem(projectRoot);
 		this.git = new GitOperations(projectRoot, null, () => this.fs.loadConfig());
-		this.branchTaskLoader = new BranchTaskLoader(this.git);
 		// Disable watchers by default for CLI commands (non-interactive)
 		// Interactive modes (TUI, browser, MCP) should explicitly pass enableWatchers: true
 		this.enableWatchers = options?.enableWatchers ?? false;
@@ -611,204 +591,73 @@ export class Core {
 		}
 	}
 
-	private async refreshCachedTasksForCrossBranchRead(
-		includeCrossBranch: boolean,
-		storeAlreadyExisted: boolean,
-	): Promise<void> {
+	private async refreshCachedTasksForStoreRead(useSharedStore: boolean, storeAlreadyExisted: boolean): Promise<void> {
 		const store = this.contentStore;
-		if (!storeAlreadyExisted || !this.enableWatchers || !includeCrossBranch || !store) {
+		if (!storeAlreadyExisted || !this.enableWatchers || !useSharedStore || !store) {
 			return;
 		}
 
 		await this.refreshTasksForTaskRead();
 	}
 
-	private getActiveBranchSettings(config: BacklogConfig | null, filesystem = this.fs) {
-		const activeBranchDays = config?.activeBranchDays ?? 30;
-		const checkActiveBranches = config?.checkActiveBranches !== false;
-		const filesystemOnly = config?.filesystemOnly === true;
-		return {
-			checkActiveBranches,
-			activeBranchDays,
-			branchHistoryCutoff:
-				checkActiveBranches && !filesystemOnly ? (getBranchHistoryCutoff(activeBranchDays)?.getTime() ?? null) : null,
-			remoteOperations: config?.remoteOperations !== false,
-			filesystemOnly,
+	/**
+	 * The settings a shared corpus is built under. Upstream this also carried the branch-scan
+	 * knobs and the active branch tips; the git layer is not carried, so what remains is the
+	 * config a read can be stale against - the task prefix, resolution strategy, status set and
+	 * backlog directory.
+	 */
+	private getTaskCorpusSettingsKey(config: BacklogConfig | null, filesystem = this.fs): string {
+		return JSON.stringify({
 			taskPrefix: config?.prefixes?.task ?? "task",
 			taskResolutionStrategy: config?.taskResolutionStrategy ?? "most_progressed",
 			statuses: config?.statuses ?? DEFAULT_STATUSES,
 			backlogDir: filesystem.backlogDirName,
-		};
+		});
 	}
 
-	private async computeActiveBranchSnapshot(
-		config: BacklogConfig | null,
-		filesystem = this.fs,
-		git = this.git,
-	): Promise<ActiveBranchSnapshot> {
-		const settings = {
-			...this.getActiveBranchSettings(config, filesystem),
-		};
-		const settingsKey = JSON.stringify(settings);
-
-		git.setConfig(config);
-		if (!settings.checkActiveBranches || settings.filesystemOnly) {
-			return {
-				branchTips: [],
-				currentBranch: "",
-				fingerprint: settingsKey,
-				stabilityFingerprint: settingsKey,
-				settingsKey,
-			};
-		}
-
-		const branchTips = Object.freeze(
-			(await git.listRecentBranchTips(settings.activeBranchDays))
-				.map((tip) => Object.freeze({ ...tip }))
-				.sort(
-					(left, right) =>
-						left.name.localeCompare(right.name) ||
-						left.commit.localeCompare(right.commit) ||
-						Number(left.current) - Number(right.current),
-				),
-		);
-		const markedCurrentBranch = branchTips.find((tip) => tip.current && !tip.name.startsWith("origin/"))?.name;
-		const currentBranch = markedCurrentBranch ?? (await git.getCurrentBranch()).trim();
-		const fingerprintTips = branchTips.map((tip) => (tip.current ? { ...tip, commit: "working-copy" } : tip));
-		return {
-			branchTips,
-			currentBranch,
-			fingerprint: JSON.stringify({ ...settings, currentBranch, branchTips: fingerprintTips }),
-			stabilityFingerprint: JSON.stringify({ ...settings, currentBranch, branchTips }),
-			settingsKey,
-		};
-	}
-
-	private async getActiveBranchSnapshot(
-		config?: BacklogConfig | null,
-		generation = this.projectGeneration,
-		filesystem = this.fs,
-		git = this.git,
-	): Promise<ActiveBranchSnapshot> {
-		const loadedConfig = config === undefined ? await filesystem.loadConfig() : config;
-		const settingsKey = JSON.stringify(this.getActiveBranchSettings(loadedConfig, filesystem));
-		if (
-			this.activeBranchSnapshotPromise?.generation !== generation ||
-			this.activeBranchSnapshotPromise.settingsKey !== settingsKey
-		) {
-			const snapshotPromise = this.computeActiveBranchSnapshot(loadedConfig, filesystem, git);
-			const pending = { generation, settingsKey, promise: snapshotPromise };
-			this.activeBranchSnapshotPromise = pending;
-			const clearSnapshotPromise = () => {
-				if (this.activeBranchSnapshotPromise === pending) this.activeBranchSnapshotPromise = null;
-			};
-			void snapshotPromise.then(clearSnapshotPromise, clearSnapshotPromise);
-		}
-		return await this.activeBranchSnapshotPromise.promise;
-	}
-
-	private async refreshRemoteRefsForTaskRead(
-		config: BacklogConfig | null,
-		git = this.git,
-		options?: { force?: boolean },
-	): Promise<void> {
-		if (git !== this.git) return;
-		if (
-			config?.checkActiveBranches === false ||
-			config?.remoteOperations === false ||
-			config?.filesystemOnly === true
-		) {
-			return;
-		}
-		// Reads may reuse a recent fetch, but task ID allocation may not: an ID that
-		// looks free only because remote refs are up to a minute old is an ID another
-		// clone has already published.
-		const force = options?.force === true;
-		if (!force && Date.now() - this.lastRemoteRefRefreshAt < REMOTE_REF_REFRESH_INTERVAL_MS) {
-			return;
-		}
-
-		// A forced request must observe refs from a fetch that started after the request
-		// arrived. Joining a refresh that was already in flight is not enough: it captured
-		// remote state before this request, so a push landing while it runs stays invisible
-		// and allocation can hand out an ID another clone already published. Waiting that
-		// refresh out first leaves the slot empty, so the fetch joined below always starts
-		// afterwards. A non-forced request keeps the plain join-or-start behavior.
-		if (force && this.remoteRefRefreshPromise) {
-			await this.remoteRefRefreshPromise;
-			// The project may have been re-pointed while we waited: reinitializeProjectRoot
-			// clears this slot and installs a new GitOperations. Starting a fetch for the old
-			// project now would publish it into the new project's slot, where a new-project
-			// read could join it and skip the refresh it actually needs.
-			if (git !== this.git) return;
-		}
-
-		if (!this.remoteRefRefreshPromise) {
-			const refreshPromise = (async () => {
-				git.setConfig(config);
-				try {
-					await git.fetch();
-				} catch (error) {
-					console.error("Failed to refresh remote refs:", error);
-				} finally {
-					if (this.git === git) this.lastRemoteRefRefreshAt = Date.now();
-				}
-			})();
-			this.remoteRefRefreshPromise = refreshPromise;
-			const clearRefreshPromise = () => {
-				if (this.remoteRefRefreshPromise === refreshPromise) this.remoteRefRefreshPromise = null;
-			};
-			void refreshPromise.then(clearRefreshPromise, clearRefreshPromise);
-		}
-
-		await this.remoteRefRefreshPromise;
-	}
-
-	/** Refresh the existing cross-branch store only when relevant config or refs changed. */
+	/**
+	 * Refresh the shared task corpus for a read. Upstream this compared a fingerprint of the
+	 * active branch tips as well; with the git layer gone a read can only be stale against the
+	 * local working copy and the config, so an unchanged settings key means a local refresh and
+	 * "nothing new".
+	 */
 	async refreshTasksForTaskRead(): Promise<boolean> {
 		while (true) {
 			const generation = this.projectGeneration;
 			const filesystem = this.fs;
-			const git = this.git;
 			const backlogRoot = filesystem.backlogDir;
 			const projectChanged = () =>
-				generation !== this.projectGeneration ||
-				filesystem !== this.fs ||
-				git !== this.git ||
-				backlogRoot !== filesystem.backlogDir;
+				generation !== this.projectGeneration || filesystem !== this.fs || backlogRoot !== filesystem.backlogDir;
 			const config = await filesystem.loadConfig();
 			if (projectChanged()) continue;
-			await this.refreshRemoteRefsForTaskRead(config, git);
-			if (projectChanged()) continue;
-			const snapshot = await this.getActiveBranchSnapshot(config, generation, filesystem, git);
-			if (projectChanged()) continue;
-			if (snapshot.fingerprint === this.activeBranchFingerprint) {
+			const settingsKey = this.getTaskCorpusSettingsKey(config, filesystem);
+			if (settingsKey === this.sharedTaskStateKey) {
 				const store = this.contentStore;
 				if (store?.isInitialized()) await store.refreshLocalTaskCorpus();
 				if (projectChanged()) continue;
 				return false;
 			}
 
-			const joinedExistingRefresh = this.activeBranchRefreshPromise !== null;
-			if (!this.activeBranchRefreshPromise) {
+			const joinedExistingRefresh = this.sharedTaskStateRefreshPromise !== null;
+			if (!this.sharedTaskStateRefreshPromise) {
 				const refreshExistingStore = this.contentStore !== undefined;
 				const refreshPromise = (async () => {
 					const store = await this.getContentStore();
 					if (refreshExistingStore) await store.refreshTasks();
 				})();
-				this.activeBranchRefreshPromise = refreshPromise;
+				this.sharedTaskStateRefreshPromise = refreshPromise;
 				const clearRefreshPromise = () => {
-					if (this.activeBranchRefreshPromise === refreshPromise) {
-						this.activeBranchRefreshPromise = null;
+					if (this.sharedTaskStateRefreshPromise === refreshPromise) {
+						this.sharedTaskStateRefreshPromise = null;
 					}
 				};
 				void refreshPromise.then(clearRefreshPromise, clearRefreshPromise);
 			}
 
-			const refreshPromise = this.activeBranchRefreshPromise;
+			const refreshPromise = this.sharedTaskStateRefreshPromise;
 			await refreshPromise;
 			if (projectChanged()) continue;
-			if (joinedExistingRefresh && this.activeBranchFingerprint !== snapshot.fingerprint) continue;
+			if (joinedExistingRefresh && this.sharedTaskStateKey !== settingsKey) continue;
 			return true;
 		}
 	}
@@ -1018,7 +867,7 @@ export class Core {
 			const storeAlreadyReady = this.contentStore?.isInitialized() ?? false;
 			const store = await this.getContentStore();
 			if (projectChanged() || store !== this.contentStore) continue;
-			await this.refreshCachedTasksForCrossBranchRead(
+			await this.refreshCachedTasksForStoreRead(
 				includeCrossBranch,
 				storeAlreadyReady && options.refreshCrossBranch !== false,
 			);
@@ -1211,7 +1060,6 @@ export class Core {
 		this.disposeContentStore();
 		this.fs = new FileSystem(projectRoot);
 		this.git = new GitOperations(projectRoot, null, () => this.fs.loadConfig());
-		this.branchTaskLoader = new BranchTaskLoader(this.git);
 	}
 
 	disposeSearchService(): void {
@@ -1226,11 +1074,8 @@ export class Core {
 			this.contentStore.dispose();
 			this.contentStore = undefined;
 		}
-		this.activeBranchFingerprint = null;
-		this.activeBranchSnapshotPromise = null;
-		this.activeBranchRefreshPromise = null;
-		this.remoteRefRefreshPromise = null;
-		this.lastRemoteRefRefreshAt = 0;
+		this.sharedTaskStateKey = null;
+		this.sharedTaskStateRefreshPromise = null;
 	}
 
 	// Backward compatibility aliases
@@ -1263,18 +1108,13 @@ export class Core {
 		return this.fs.backlogDirName;
 	}
 
-	async shouldAutoCommit(overrideValue?: boolean): Promise<boolean> {
-		const config = await this.fs.loadConfig();
-		this.git.setConfig(config);
-		if (config?.filesystemOnly) {
-			return false;
-		}
-		// If override is explicitly provided, use it
-		if (overrideValue !== undefined) {
-			return overrideValue;
-		}
-		// Otherwise, check config (default to false for safety)
-		return config?.autoCommit ?? false;
+	/**
+	 * The git layer is not carried, so nothing auto-commits — not on the config's say-so
+	 * and not on a caller's `--auto-commit` override. Every git call site in this file is
+	 * guarded by this, which is why the stub in git/operations.ts can throw.
+	 */
+	async shouldAutoCommit(_overrideValue?: boolean): Promise<boolean> {
+		return false;
 	}
 
 	async getGitOps() {
@@ -1581,10 +1421,9 @@ export class Core {
 	}
 
 	private async getActiveAndCompletedTaskIds(): Promise<string[]> {
-		const snapshot = await this.loadTasksWithStableBranchSnapshot({
+		const snapshot = await this.buildTaskCorpusSnapshot({
 			includeCompleted: false,
 			visibleCompleted: false,
-			forceRemoteRefresh: true,
 		});
 		const completedTasks = snapshot.completedTasks;
 		const config = snapshot.config;
@@ -3894,11 +3733,7 @@ export class Core {
 		return (await this.getDocument(existingDoc.id)) ?? updatedDoc;
 	}
 
-	async listTasksWithMetadata(
-		includeBranchMeta = false,
-		filesystem = this.fs,
-		git = this.git,
-	): Promise<Array<Task & { lastModified?: Date; branch?: string }>> {
+	async listTasksWithMetadata(filesystem = this.fs): Promise<Array<Task & { lastModified?: Date }>> {
 		const tasks = await filesystem.listTasks();
 		return await Promise.all(
 			tasks.map(async (task) => {
@@ -3910,10 +3745,6 @@ export class Core {
 					return {
 						...task,
 						lastModified: new Date(stats.mtime),
-						// Only include branch if explicitly requested
-						...(includeBranchMeta && {
-							branch: (await git.getFileLastModifiedBranch(filePath)) || undefined,
-						}),
 					};
 				}
 				return task;
@@ -4202,7 +4033,7 @@ export class Core {
 		options?: { includeCompleted?: boolean },
 	): Promise<Task[]> {
 		return (
-			await this.loadTasksWithStableBranchSnapshot({
+			await this.buildTaskCorpusSnapshot({
 				progressCallback,
 				abortSignal,
 				includeCompleted: options?.includeCompleted,
@@ -4214,7 +4045,7 @@ export class Core {
 		progressCallback?: (message: string) => void,
 		options?: { publishSharedState?: boolean },
 	): Promise<TaskCorpusSnapshot> {
-		return await this.loadTasksWithStableBranchSnapshot({
+		return await this.buildTaskCorpusSnapshot({
 			progressCallback,
 			includeCompleted: true,
 			visibleCompleted: false,
@@ -4256,150 +4087,82 @@ export class Core {
 		return await this.loadTaskCorpusSnapshot(progressCallback, { publishSharedState: options?.publish ?? true });
 	}
 
-	private async loadTasksWithStableBranchSnapshot(
-		options: TaskCorpusLoadOptions,
-		snapshotAttempt = 0,
-		retrySnapshot?: ActiveBranchSnapshot,
-	): Promise<TaskCorpusSnapshot> {
-		const { progressCallback, abortSignal } = options;
+	/**
+	 * Build a task corpus snapshot from the working copy. Upstream this also indexed and
+	 * hydrated tasks from other branches and remote refs behind a stable branch-tip snapshot;
+	 * the git layer is not carried, so the only source is the local filesystem and the
+	 * snapshot is stable by construction.
+	 */
+	private async buildTaskCorpusSnapshot(options: TaskCorpusLoadOptions, attempt = 0): Promise<TaskCorpusSnapshot> {
+		const { abortSignal } = options;
 		const generation = this.projectGeneration;
 		const filesystem = this.fs;
-		const git = this.git;
-		const branchTaskLoader = this.branchTaskLoader;
 		const projectRoot = filesystem.rootDir;
 		const backlogRoot = filesystem.backlogDir;
 		const projectChanged = () =>
 			generation !== this.projectGeneration ||
 			filesystem !== this.fs ||
-			git !== this.git ||
-			branchTaskLoader !== this.branchTaskLoader ||
 			projectRoot !== this.fs.rootDir ||
 			backlogRoot !== filesystem.backlogDir;
-		const retryForCurrentProject = async (nextSnapshot?: ActiveBranchSnapshot) => {
-			if (snapshotAttempt >= 2) {
-				throw new Error("Project root or active branch refs kept changing while tasks were loading");
+		const retryForCurrentProject = async () => {
+			if (attempt >= 2) {
+				throw new Error("Project root kept changing while tasks were loading");
 			}
-			return await this.loadTasksWithStableBranchSnapshot(options, snapshotAttempt + 1, nextSnapshot);
+			return await this.buildTaskCorpusSnapshot(options, attempt + 1);
 		};
 
 		const config = await filesystem.loadConfig();
 		if (projectChanged()) return await retryForCurrentProject();
-		git.setConfig(config);
-		// A cancelled load must not wait out the fetch timeout before noticing.
-		if (abortSignal?.aborted) {
-			throw new Error("Loading cancelled");
-		}
-		await this.refreshRemoteRefsForTaskRead(config, git, { force: options.forceRemoteRefresh });
-		if (projectChanged()) return await retryForCurrentProject();
-		const settingsKey = JSON.stringify(this.getActiveBranchSettings(config, filesystem));
-		const snapshotBefore =
-			retrySnapshot?.settingsKey === settingsKey
-				? retrySnapshot
-				: await this.getActiveBranchSnapshot(config, generation, filesystem, git);
-		if (projectChanged()) return await retryForCurrentProject();
+		const settingsKeyBefore = this.getTaskCorpusSettingsKey(config, filesystem);
 		const statuses = config?.statuses || [...DEFAULT_STATUSES];
 		const resolutionStrategy = config?.taskResolutionStrategy || "most_progressed";
 		const includeCompleted = options.includeCompleted ?? false;
-		const shouldLoadBranches = config?.checkActiveBranches !== false && config?.filesystemOnly !== true;
 
 		// Check for cancellation
 		if (abortSignal?.aborted) {
 			throw new Error("Loading cancelled");
 		}
 
-		// Load local filesystem tasks first (needed for optimization)
 		const [localTasks, completedTasks] = await Promise.all([
-			this.listTasksWithMetadata(false, filesystem, git),
+			this.listTasksWithMetadata(filesystem),
 			filesystem.listCompletedTasks(),
 		]);
 		if (projectChanged()) return await retryForCurrentProject();
-
-		// Check for cancellation
-		if (abortSignal?.aborted) {
-			throw new Error("Loading cancelled");
-		}
-
-		// Load tasks from remote branches and other local branches in parallel
-		// Skip entirely when cross-branch scanning is disabled
-		const branchStateEntries: BranchTaskStateEntry[] = [];
-		let branchLoadComplete = true;
-
-		let backlogDir: string | null = null;
-		if (shouldLoadBranches) {
-			progressCallback?.(getTaskLoadingMessage(config));
-			backlogDir = filesystem.backlogDirName;
-			const branchLoad = await branchTaskLoader.load(
-				snapshotBefore.branchTips,
-				config,
-				localTasks,
-				includeCompleted,
-				backlogDir,
-				progressCallback,
-				snapshotBefore.currentBranch,
-			);
-			branchStateEntries.push(...branchLoad.entries);
-			branchLoadComplete = branchLoad.complete;
-			if (projectChanged()) return await retryForCurrentProject();
-		}
-
-		// Check for cancellation after loading
-		if (abortSignal?.aborted) {
-			throw new Error("Loading cancelled");
-		}
 
 		// Check for cancellation before identity resolution
 		if (abortSignal?.aborted) {
 			throw new Error("Loading cancelled");
 		}
 
-		if (shouldLoadBranches) {
-			progressCallback?.("Applying latest task states from branch scans...");
-		}
 		const identityIndex = await this.buildTaskIdentityIndex(
 			localTasks,
 			completedTasks,
-			branchStateEntries,
+			[],
 			statuses,
 			resolutionStrategy,
-			undefined,
+			null,
 			filesystem,
-			git,
 		);
 		if (projectChanged()) return await retryForCurrentProject();
 		const filteredTasks = identityIndex.getTasks(options.visibleCompleted ?? includeCompleted);
 
-		// This read must begin after this scan finishes. Reusing an unrelated
-		// in-flight pre-scan snapshot could otherwise publish a generation that
-		// moved while immutable commit trees were still being indexed.
-		const snapshotAfter = await this.computeActiveBranchSnapshot(await filesystem.loadConfig(), filesystem, git);
+		// A config edit that lands while this load runs would publish a corpus built under the
+		// old settings, and every later read would believe the store already holds the new ones.
+		const settingsKeyAfter = this.getTaskCorpusSettingsKey(await filesystem.loadConfig(), filesystem);
 		if (projectChanged()) return await retryForCurrentProject();
-		if (snapshotBefore.stabilityFingerprint !== snapshotAfter.stabilityFingerprint) {
-			return await retryForCurrentProject(snapshotAfter);
-		}
-		// Only the corpus this Core installs into its ContentStore may advance shared
-		// freshness state. A standalone load (statistics, ID allocation, a TUI board
-		// read) that publishes its refs would make every later read believe the store
-		// already holds them and serve the older corpus until the refs move again.
-		// Healthy branches remain publishable after a partial read, but an
-		// incomplete generation must retry even while its refs stay unchanged.
+		if (settingsKeyBefore !== settingsKeyAfter) return await retryForCurrentProject();
+		// Only the corpus this Core installs into its ContentStore may advance shared state.
+		// A standalone load (statistics, ID allocation, a TUI board read) that published it
+		// would make every later read believe the store already holds the current corpus.
 		if (options.publishSharedState) {
-			this.activeBranchFingerprint = branchLoadComplete ? snapshotAfter.fingerprint : null;
-		}
-		if (shouldLoadBranches && backlogDir) {
-			branchTaskLoader.retainSnapshot(snapshotAfter.branchTips, {
-				backlogDir,
-				prefix: config?.prefixes?.task ?? "task",
-				activeBranchDays: config?.activeBranchDays ?? 30,
-			});
-		} else {
-			branchTaskLoader.clear();
+			this.sharedTaskStateKey = settingsKeyAfter;
 		}
 		return {
 			tasks: filteredTasks,
 			activeTasks: localTasks,
 			completedTasks,
 			identityIndex,
-			branchStateEntries,
+			branchStateEntries: [],
 			config,
 		};
 	}

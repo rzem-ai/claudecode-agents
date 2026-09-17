@@ -278,7 +278,9 @@ async function initializeTestProjectWithOptions(
 	projectName: string,
 	options: { autoCommit?: boolean; backlogDirectory?: string; filesystemOnly?: boolean },
 ): Promise<void> {
-	const { autoCommit = false, backlogDirectory, filesystemOnly = false } = options;
+	// options.autoCommit is accepted and ignored: the git layer is not carried, so a test
+	// project is never a git repository with an initial backlog commit.
+	const { backlogDirectory, filesystemOnly = false } = options;
 	const backlogDirectorySource = backlogDirectory
 		? backlogDirectory === "backlog" || backlogDirectory === ".backlog"
 			? (backlogDirectory as "backlog" | ".backlog")
@@ -298,8 +300,4 @@ async function initializeTestProjectWithOptions(
 		},
 	});
 
-	if (autoCommit) {
-		const repoRoot = await core.gitOps.stageBacklogDirectory(core.filesystem.backlogDirName);
-		await core.gitOps.commitChanges(`backlog: Initialize backlog project: ${projectName}`, repoRoot);
-	}
 }

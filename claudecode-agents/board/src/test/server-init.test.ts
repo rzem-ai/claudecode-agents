@@ -31,18 +31,6 @@ describe("BacklogServer init endpoint", () => {
 		await safeCleanup(TEST_DIR);
 	});
 
-	it("parses string false filesystemOnly without enabling filesystem-only mode", async () => {
-		const server = new BacklogServer(TEST_DIR) as unknown as InitHandler;
-		const response = await server.handleInit(initRequest({ filesystemOnly: "false" }));
-
-		expect(response.status).toBe(200);
-
-		const config = await new Core(TEST_DIR).filesystem.loadConfig();
-		expect(config?.filesystemOnly).toBe(false);
-		expect(config?.remoteOperations).toBe(true);
-		expect(config?.checkActiveBranches).toBe(true);
-	});
-
 	it("rejects reserved task prefixes before writing config", async () => {
 		const server = new BacklogServer(TEST_DIR) as unknown as InitHandler;
 		const response = await server.handleInit(

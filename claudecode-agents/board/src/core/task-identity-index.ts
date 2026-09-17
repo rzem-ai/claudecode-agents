@@ -2,7 +2,7 @@ import { isAbsolute, relative } from "node:path";
 import type { Task } from "../types/index.ts";
 import { canonicalTaskId, taskIdsEqual } from "../utils/task-path.ts";
 import { compareTaskIds } from "../utils/task-sorting.ts";
-import type { TaskDirectoryType } from "./cross-branch-tasks.ts";
+import type { TaskDirectoryType } from "./task-loader.ts";
 
 export interface TaskIdentityRecord {
 	id: string;
