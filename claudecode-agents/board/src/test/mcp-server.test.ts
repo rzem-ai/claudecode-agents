@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { createMcpServer, McpServer } from "../mcp/server.ts";
 import { registerDefinitionOfDoneTools } from "../mcp/tools/definition-of-done/index.ts";
 import { registerTaskTools } from "../mcp/tools/tasks/index.ts";
@@ -120,5 +123,12 @@ describe("McpServer bootstrap", () => {
 		await server.start();
 		await server.stop();
 		await safeCleanup(TEST_DIR);
+	});
+
+	it("refuses a board root whose board directory holds no config", async () => {
+		TEST_DIR = createUniqueTestDir("mcp-server-no-config");
+		await mkdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG), { recursive: true });
+
+		await expect(createMcpServer(TEST_DIR)).rejects.toThrow("no board/config.yml under the board root");
 	});
 });

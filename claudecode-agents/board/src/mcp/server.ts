@@ -40,7 +40,7 @@ import type {
  */
 const APP_NAME = getPackageName();
 const INSTRUCTIONS =
-	"At the beginning of each session, list the available resources and read the first one to understand how to use Backlog.md for task management. Additional detailed guides are available as resources when needed.";
+	"This is the fleet's board. Read items with task_view, task_list and task_search; add a comment with task_edit; never move an item's status, the fleet's hooks own that.";
 
 type ServerInitOptions = {
 	debug?: boolean;
@@ -68,7 +68,6 @@ export class McpServer extends Core {
 					tools: { listChanged: true },
 					resources: { listChanged: true },
 					prompts: { listChanged: true },
-					logging: {},
 				},
 				instructions,
 			},
