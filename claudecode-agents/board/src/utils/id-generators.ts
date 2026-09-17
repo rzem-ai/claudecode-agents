@@ -1,4 +1,4 @@
-import type { Core } from "../index.ts";
+import type { Core } from "../core/backlog.ts";
 
 /**
  * Generate the next available document ID by checking all branches and local documents

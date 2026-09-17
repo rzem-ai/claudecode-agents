@@ -57,7 +57,7 @@ const INSTRUCTIONS =
 
 type ServerInitOptions = {
 	debug?: boolean;
-	/** When true (from --cwd/BACKLOG_CWD), the root is fixed and client roots are never consulted. */
+	/** When true, the root is fixed and client roots are never consulted. */
 	pinned?: boolean;
 };
 

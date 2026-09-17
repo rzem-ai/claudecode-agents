@@ -1,5 +1,4 @@
 import type { Command } from "commander";
-import type { HelpField } from "../commands/help-schema.ts";
 
 /**
  * Paging for CLI lists, named after options agents already know: `git log --max-count --skip`
@@ -33,16 +32,6 @@ export type ListPage<T> = {
 	/** True when the window leaves out any item of the list. */
 	cut: boolean;
 };
-
-export const LIST_WINDOW_HELP_FIELDS: HelpField[] = [
-	{
-		name: "max-count",
-		type: "Positive integer",
-		description: "Print at most this many items after filtering and sorting; cut output ends with the next command",
-	},
-	{ name: "skip", type: "Non-negative integer", description: "Leave out this many items after filtering and sorting" },
-	{ name: "count", type: "Boolean", description: "Print only the number of items the command would list" },
-];
 
 export function addListWindowOptions(command: Command): Command {
 	return command

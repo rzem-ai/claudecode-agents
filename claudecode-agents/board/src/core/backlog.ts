@@ -1,5 +1,6 @@
 import { rename as moveFile, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { resolveBoardRoot } from "../board-root.ts";
 import { DEFAULT_DIRECTORIES, DEFAULT_STATUSES, FALLBACK_STATUS } from "../constants/index.ts";
 import {
 	type DraftFileReference,
@@ -49,7 +50,6 @@ import {
 } from "../utils/duplicate-detection.ts";
 import { openInEditor } from "../utils/editor.ts";
 import { isAmbiguousIdError } from "../utils/entity-id.ts";
-import { findBacklogRoot } from "../utils/find-backlog-root.ts";
 import { generateNextDecisionId, generateNextDocId } from "../utils/id-generators.ts";
 import { createMilestoneFilterValueResolver } from "../utils/milestone-filter.ts";
 import {
@@ -67,7 +67,6 @@ import {
 	noProjectsConfiguredMessage,
 	resolveProjectValue,
 } from "../utils/project-config.ts";
-import { resolveRuntimeCwd } from "../utils/runtime-cwd.ts";
 import {
 	getCanonicalStatus as resolveCanonicalStatus,
 	getValidStatuses as resolveValidStatuses,
@@ -4407,13 +4406,11 @@ export class Core {
 }
 
 /**
- * Builds a Core bound to the project every interface resolves the same way: the runtime working
- * directory (`--cwd`/`BACKLOG_CWD`, else `process.cwd()`), then walked up to the project root just
- * like the CLI commands do. When no project is found the resolved directory is used as-is, so
- * callers keep degrading to their own fallbacks instead of failing.
+ * Builds a Core bound to the board root every interface resolves the same way: the directory
+ * `CLAUDECODE_AGENTS_BOARD_ROOT` names, with no walk-up and no working-directory fallback. A root
+ * that is not a directory throws rather than degrading to some nearby project.
  * Prefer passing an existing Core; use this only where no instance is available.
  */
 export async function createRuntimeCore(options?: { enableWatchers?: boolean }): Promise<Core> {
-	const { cwd } = await resolveRuntimeCwd();
-	return new Core((await findBacklogRoot(cwd)) ?? cwd, options);
+	return new Core(resolveBoardRoot(), options);
 }

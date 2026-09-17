@@ -1,4 +1,3 @@
-import { renderConfiguredTaskIds } from "../commands/help-schema.ts";
 import { INSTRUCTION_GUIDES } from "../mcp/workflow-guides.ts";
 
 type RootEntryOptions = {
@@ -50,7 +49,7 @@ export function formatRootEntry({ version, initialized, color = false }: RootEnt
 		lines.push(sectionTitle("Common workflow:", color));
 		lines.push(commandLine('backlog search "query" --plain', "Search tasks, docs, and decisions"));
 		lines.push(commandLine("backlog task list --plain", "List tasks"));
-		lines.push(commandLine(renderConfiguredTaskIds("backlog task view {{TASK_ID:123}} --plain"), "Read task context"));
+		lines.push(commandLine("backlog task view TASK-123 --plain", "Read task context"));
 		lines.push(commandLine('backlog task create "Title" -d "Description"', "Create a task"));
 		lines.push(commandLine("backlog board", "Open the TUI Kanban board"));
 		lines.push(commandLine("backlog browser", "Open the Web UI Kanban board"));

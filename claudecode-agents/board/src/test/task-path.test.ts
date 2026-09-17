@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
+import { BOARD_ROOT_ENV } from "../board-root.ts";
 import { Core } from "../core/backlog.ts";
 import {
 	AmbiguousTaskIdError,
@@ -285,17 +286,18 @@ describe("Task path utilities", () => {
 	});
 
 	describe("integration with Core default", () => {
-		it("should work without explicit core parameter when in valid project", async () => {
-			// Change to test directory to use default Core
-			const originalCwd = process.cwd();
-			process.chdir(TEST_DIR);
+		it("should work without explicit core parameter when the board root points at the project", async () => {
+			// The default Core reads BOARD_ROOT_ENV; there is no walk-up from the working directory.
+			const originalRoot = process.env[BOARD_ROOT_ENV];
+			process.env[BOARD_ROOT_ENV] = TEST_DIR;
 
 			try {
 				const path = await getTaskPath("123");
 				expect(path).toBeTruthy();
 				expect(path).toContain("task-123 - Test Task.md");
 			} finally {
-				process.chdir(originalCwd);
+				if (originalRoot === undefined) delete process.env[BOARD_ROOT_ENV];
+				else process.env[BOARD_ROOT_ENV] = originalRoot;
 			}
 		});
 	});

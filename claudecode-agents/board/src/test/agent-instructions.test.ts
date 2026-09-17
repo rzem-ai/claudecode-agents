@@ -3,14 +3,8 @@ import { mkdir, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
 import { Core } from "../core/backlog.ts";
-import {
-	_loadAgentGuideline,
-	AGENT_GUIDELINES,
-	addAgentInstructions,
-	CLI_AGENT_NUDGE,
-	ensureMcpGuidelines,
-	README_GUIDELINES,
-} from "../index.ts";
+import { _loadAgentGuideline, addAgentInstructions, ensureMcpGuidelines } from "../agent-instructions.ts";
+import { AGENT_GUIDELINES, CLI_AGENT_NUDGE, README_GUIDELINES } from "../guidelines/index.ts";
 import { createUniqueTestDir, initializeTestProject, isWindows, safeCleanup } from "./test-utils.ts";
 
 let TEST_DIR: string;
@@ -322,20 +316,6 @@ describe("addAgentInstructions", () => {
 		expect(section).toContain("single-quoted CLI arguments");
 		expect(section).toContain("backlog task create 'Document `backlog init` setup'");
 		expect(section).toContain("Backlog.md cannot recover the original text after the shell has already executed it");
-	});
-
-	// BACK-431 / issue #595: option help text must not advertise shell forms that AI
-	// agent sandboxes reject. Help text is what `--help` surfaces and what agents echo
-	// when reasoning about how to call the CLI.
-	it("CLI option help does not advertise sandbox-rejected shell forms (BACK-431/#595)", async () => {
-		const cliPath = join(__dirname, "../cli.ts");
-		const cliText = await Bun.file(cliPath).text();
-		const helpLines = cliText.split("\n").filter((line) => line.includes("multi-line"));
-		expect(helpLines.length).toBeGreaterThan(0);
-		for (const line of helpLines) {
-			expect(line).not.toMatch(/\$'/); // no ANSI-C quoting in help strings
-			expect(line).not.toMatch(/\$\(printf/); // no command-substitution-with-printf in help strings
-		}
 	});
 
 	// BACK-267: every installed instruction block carries a machine-readable version

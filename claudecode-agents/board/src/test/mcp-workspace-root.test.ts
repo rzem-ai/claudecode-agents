@@ -113,7 +113,7 @@ describe("MCP workspace root resolution", () => {
 		}
 	});
 
-	it("stays pinned and never queries roots when --cwd/BACKLOG_CWD is set", async () => {
+	it("stays pinned and never queries roots when the server is created pinned", async () => {
 		TEST_DIR = createUniqueTestDir("mcp-workspace");
 		const pinnedProject = join(TEST_DIR, "pinned-project");
 		const workspaceProject = join(TEST_DIR, "workspace-project");

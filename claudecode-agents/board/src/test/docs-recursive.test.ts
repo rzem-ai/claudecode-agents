@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Core } from "../index.ts";
+import { Core } from "../core/backlog.ts";
 import { initializeTestProject, isWindows } from "./test-utils.ts";
 
 let TEST_DIR: string;
