@@ -244,7 +244,9 @@ export function resolveBoardRoot(env: NodeJS.ProcessEnv = process.env): string {
 Run: `bun test src/test/board-root.test.ts`
 Expected: PASS, three tests.
 
-- [ ] **Step 5: Make `board` the directory upstream's resolver looks for**
+- [ ] **Step 5: Withdrawn during execution; see Task 5 Step 6**
+
+The directory rename cannot happen while upstream's walk-up and the tests that spawn the old CLI are still present: the package itself lives at `claudecode-agents/board/`, so a constant of `"board"` makes the walk-up resolve the plugin as a project, and a subprocess test then writes into the real repository. The rename is done in Task 5 once those are deleted. The text that follows describes that later step.
 
 In `src/constants/index.ts` change `BACKLOG: "backlog"` to `BACKLOG: "board"`. Leave `HIDDEN_BACKLOG` and `ROOT_CONFIG` alone; nothing in the fleet creates either, and deleting them would touch the resolver for no gain.
 
@@ -257,7 +259,9 @@ grep -rln "join([^)]*\"backlog\"" src/test | head
 
 For each hit that builds a path to the backlog directory, replace the literal with `DEFAULT_DIRECTORIES.BACKLOG` (import it from `../constants/index.ts`). Do not touch hits that are prose in an assertion message about the upstream product.
 
-- [ ] **Step 6: Delete the old resolvers and repair importers**
+- [ ] **Step 6: Withdrawn during execution; see Task 3 Step 4**
+
+Upstream's `cli.ts` imports both resolvers and about seventy upstream tests spawn that CLI as a subprocess, so deleting the resolvers before the CLI is replaced fails every one of them. The deletion and the importer repair happen in Task 3 Step 4 alongside the CLI rewrite. The text that follows describes that later step.
 
 ```bash
 git rm -q src/utils/find-backlog-root.ts src/utils/runtime-cwd.ts
@@ -640,7 +644,17 @@ cd src/test && git rm -q $(ls cli-*.test.ts config-commands.test.ts implementati
 grep -rln "commands/\|from \"\./index.ts\"\|from \"\.\./index.ts\"" src | grep -v "^src/test/"
 ```
 
-Any non-test file still importing from `src/commands/` is a bug in this step; fix the import or delete the file if it is on the Task 5 list. Of the 26 failures in the baseline, 22 were in the `cli-*` and `config-commands` files deleted here; the remaining four (`content-store`, `draft-create-consistency`, `implementation-notes`, one `cli-*`) are noted in `NOTICE.md` as failing at the pin.
+Any non-test file still importing from `src/commands/` is a bug in this step; fix the import or delete the file if it is on the Task 5 list.
+
+Then delete the old resolvers, which only the old CLI and the tests deleted above still used, and repair the two carried importers:
+
+```bash
+git rm -q src/utils/find-backlog-root.ts src/utils/runtime-cwd.ts
+git rm -q src/test/find-backlog-root.test.ts src/test/runtime-cwd.test.ts 2>/dev/null || true
+grep -rln "find-backlog-root\|runtime-cwd\|BACKLOG_CWD_ENV" src
+```
+
+In `src/core/backlog.ts` and `src/mcp/server.ts`, replace the import with `import { resolveBoardRoot } from "../board-root.ts";` and each call to `resolveRuntimeCwd(...)` or `getProjectRoot(...)` with `resolveBoardRoot()`; where the old code returned `null` for "no project", the new code throws, so delete the `null` branch. Any remaining test file that imports `BACKLOG_CWD_ENV` is a test of the old CLI and is deleted. Of the 26 failures in the baseline, 22 were in the `cli-*` and `config-commands` files deleted here; the remaining four (`content-store`, `draft-create-consistency`, `implementation-notes`, one `cli-*`) are noted in `NOTICE.md` as failing at the pin.
 
 - [ ] **Step 5: Run the new test and the type check**
 
@@ -839,7 +853,17 @@ bun install && bun test --timeout=10000 2>&1 | tail -3 && bun build --target=bun
 
 Expected: tests pass; `bundled`.
 
-- [ ] **Step 5: Update NOTICE.md's removal list** so it matches what this task actually deleted, and commit.
+- [ ] **Step 5: Update NOTICE.md's removal list** so it matches what this task actually deleted.
+
+- [ ] **Step 6: Make `board` the directory the resolver looks for**
+
+Now that `src/cli.ts` is the thin CLI (no walk-up) and the tests that spawned the old CLI are gone, change `BACKLOG: "backlog"` to `BACKLOG: "board"` in `src/constants/index.ts`. Then rewrite the tests that build a path to the backlog directory by hand:
+
+```bash
+grep -rln '"backlog"' src/test | wc -l
+```
+
+For each hit that builds a path to the backlog directory, replace the literal with `DEFAULT_DIRECTORIES.BACKLOG` (import it from `../constants/index.ts`). Leave prose in assertion messages alone. The Task 2 implementer saw a `logicalTaskPath` substring collision when trying this early; read the note in `.superpowers/sdd/backlog-board/task-2-report.md` before starting. Run `bun test --timeout=10000 2>&1 | tail -3` once; failing test names must match the run before this step. Then commit this task.
 
 ```bash
 git add -A && git commit -m "board: remove the TUI, init, migrations and guideline machinery
