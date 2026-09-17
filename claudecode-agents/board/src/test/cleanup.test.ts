@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { Task } from "../types/index.ts";
 import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
@@ -42,7 +43,7 @@ describe("Cleanup functionality", () => {
 	describe("Core functionality", () => {
 		it("should create completed directory in backlog structure", async () => {
 			await core.filesystem.ensureBacklogStructure();
-			expect(core.filesystem.completedDir).toBe(join(TEST_DIR, "backlog", "completed"));
+			expect(core.filesystem.completedDir).toBe(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "completed"));
 		});
 
 		it("should move Done task to completed folder", async () => {

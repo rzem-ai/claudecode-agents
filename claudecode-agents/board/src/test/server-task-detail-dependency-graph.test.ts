@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { TaskDetail } from "../core/task-detail.ts";
 import { FileSystem } from "../file-system/operations.ts";
@@ -100,8 +101,8 @@ describe("BacklogServer task detail dependency graph", () => {
 	it("reports unresolved identities instead of guessing", async () => {
 		await addTask("task-1", "Contested");
 		await addTask("task-2", "Selected", ["task-1", "task-404"]);
-		const original = join(testDir, "backlog", "tasks", "task-1 - Contested.md");
-		await writeFile(join(testDir, "backlog", "tasks", "task-01 - Contested-copy.md"), await readFile(original));
+		const original = join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks", "task-1 - Contested.md");
+		await writeFile(join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks", "task-01 - Contested-copy.md"), await readFile(original));
 
 		const detail = await detailFor("task-2");
 		expect(detail.dependencyGraph.nodes.map((node) => [node.id, node.state])).toEqual([
@@ -113,8 +114,8 @@ describe("BacklogServer task detail dependency graph", () => {
 
 	it("fails closed for an ambiguous selected task and rejects an invalid ID", async () => {
 		await addTask("task-1", "Contested");
-		const original = join(testDir, "backlog", "tasks", "task-1 - Contested.md");
-		await writeFile(join(testDir, "backlog", "tasks", "task-01 - Contested-copy.md"), await readFile(original));
+		const original = join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks", "task-1 - Contested.md");
+		await writeFile(join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks", "task-01 - Contested-copy.md"), await readFile(original));
 
 		expect((await withTimeout(handlers.handleGetTask("task-1"), "ambiguous", 5_000)).status).toBe(409);
 		expect((await withTimeout(handlers.handleGetTask("nope!"), "invalid", 5_000)).status).toBe(400);

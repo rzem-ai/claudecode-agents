@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { stat, unlink, utimes } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { FileSystem } from "../file-system/operations.ts";
 import * as markdownParser from "../markdown/parser.ts";
 import { serializeTask } from "../markdown/serializer.ts";
@@ -169,7 +170,7 @@ describe("FileSystem task parse cache", () => {
 			await filesystem.saveTask(task("TASK-1", "Secondary root"));
 			expect((await filesystem.listTasks())[0]?.title).toBe("Secondary root");
 
-			filesystem.setBacklogDirectory("backlog");
+			filesystem.setBacklogDirectory(DEFAULT_DIRECTORIES.BACKLOG);
 			expect((await filesystem.listTasks())[0]?.title).toBe("Primary root");
 			expect(parseSpy).toHaveBeenCalledTimes(3);
 		} finally {

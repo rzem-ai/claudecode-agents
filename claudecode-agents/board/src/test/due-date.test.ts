@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import { parseMilestone, parseTask } from "../markdown/parser.ts";
 import { serializeTask } from "../markdown/serializer.ts";
@@ -188,7 +189,7 @@ describe("due date persistence operations", () => {
 	it("does not hide valid milestones when another file has an invalid due date", async () => {
 		await core.filesystem.createMilestone("Valid release", undefined, "2026-09-01");
 		await Bun.write(
-			join(testDir, "backlog", "milestones", "m-1 - Invalid-release.md"),
+			join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "milestones", "m-1 - Invalid-release.md"),
 			`---
 id: m-1
 title: "Invalid release"

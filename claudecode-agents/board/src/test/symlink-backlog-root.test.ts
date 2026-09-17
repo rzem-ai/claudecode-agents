@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import { createUniqueTestDir, isWindows, safeCleanup } from "./test-utils.ts";
 
@@ -32,7 +33,7 @@ auto_commit: false
 `,
 		);
 
-		await symlink(backlogDir, join(repoDir, "backlog"));
+		await symlink(backlogDir, join(repoDir, DEFAULT_DIRECTORIES.BACKLOG));
 
 		const core = new Core(repoDir);
 		const { task } = await core.createTaskFromInput({ title: "Symlink root task" });

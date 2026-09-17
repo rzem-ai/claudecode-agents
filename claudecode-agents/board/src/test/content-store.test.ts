@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import * as nodeFs from "node:fs";
 import { rename, stat, unlink } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import { ContentStore, type ContentStoreEvent, type TaskCorpusSnapshot } from "../core/content-store.ts";
 import { SearchService } from "../core/search-service.ts";
@@ -92,7 +93,7 @@ describe("ContentStore", () => {
 			];
 			const identityIndex = new TaskIdentityIndex(
 				records,
-				{ repositoryRoot: null, projectRoot: TEST_DIR, backlogDirectory: "backlog" },
+				{ repositoryRoot: null, projectRoot: TEST_DIR, backlogDirectory: DEFAULT_DIRECTORIES.BACKLOG },
 				["To Do", "In Progress", "Done"],
 				"most_progressed",
 			);
@@ -584,7 +585,7 @@ describe("ContentStore", () => {
 
 	it("publishes watched distinct-path local creation with the refreshed branch collision identity", async () => {
 		store.dispose();
-		store = new ContentStore(filesystem, branchSnapshotLoader("backlog/tasks/task-1 - Branch-only.md"), true);
+		store = new ContentStore(filesystem, branchSnapshotLoader(`${DEFAULT_DIRECTORIES.BACKLOG}/tasks/task-1 - Branch-only.md`), true);
 		await store.ensureInitialized();
 		expect(store.resolveTaskForRead("TASK-1").status).toBe("found");
 
@@ -606,7 +607,7 @@ describe("ContentStore", () => {
 	it("publishes watched same-path local creation as one branch-version identity", async () => {
 		store.dispose();
 		const filename = "task-1 - Same-path.md";
-		store = new ContentStore(filesystem, branchSnapshotLoader(`backlog/tasks/${filename}`), true);
+		store = new ContentStore(filesystem, branchSnapshotLoader(`${DEFAULT_DIRECTORIES.BACKLOG}/tasks/${filename}`), true);
 		await store.ensureInitialized();
 
 		const observedResolutions: string[] = [];
@@ -631,7 +632,7 @@ describe("ContentStore", () => {
 		const filename = "task-1 - Same-path.md";
 		const localPath = join(filesystem.tasksDir, filename);
 		await Bun.write(localPath, serializeTask({ ...sampleTask, id: "TASK-1", title: "Current worktree" }));
-		store = new ContentStore(filesystem, branchSnapshotLoader(`backlog/tasks/${filename}`), true);
+		store = new ContentStore(filesystem, branchSnapshotLoader(`${DEFAULT_DIRECTORIES.BACKLOG}/tasks/${filename}`), true);
 		await store.ensureInitialized();
 
 		const observedTitles: string[] = [];
@@ -655,7 +656,10 @@ describe("ContentStore", () => {
 		await Bun.write(localPath, serializeTask({ ...sampleTask, id: "TASK-1", title: "Current worktree" }));
 		store = new ContentStore(
 			filesystem,
-			branchSnapshotLoader([`backlog/tasks/${filename}`, "backlog/tasks/task-1 - Distinct-branch-path.md"]),
+			branchSnapshotLoader([
+				`${DEFAULT_DIRECTORIES.BACKLOG}/tasks/${filename}`,
+				`${DEFAULT_DIRECTORIES.BACKLOG}/tasks/task-1 - Distinct-branch-path.md`,
+			]),
 			true,
 		);
 		await store.ensureInitialized();
@@ -856,7 +860,7 @@ describe("ContentStore", () => {
 						workingCopy: true,
 					},
 				],
-				{ repositoryRoot: null, projectRoot: TEST_DIR, backlogDirectory: "backlog" },
+				{ repositoryRoot: null, projectRoot: TEST_DIR, backlogDirectory: DEFAULT_DIRECTORIES.BACKLOG },
 				["To Do", "In Progress", "Done"],
 				"most_progressed",
 			);

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { TaskIdentityIndex, type TaskIdentityRecord } from "../core/task-identity-index.ts";
 import type { Task } from "../types/index.ts";
 
 const context = {
 	repositoryRoot: "/repo",
 	projectRoot: "/repo",
-	backlogDirectory: "backlog",
+	backlogDirectory: DEFAULT_DIRECTORIES.BACKLOG,
 };
 
 function task(title: string, id = "BACK-1"): Task {

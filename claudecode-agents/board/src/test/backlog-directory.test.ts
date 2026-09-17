@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { resolveBacklogDirectory } from "../utils/backlog-directory.ts";
 
 describe("resolveBacklogDirectory", () => {
@@ -45,13 +46,13 @@ describe("resolveBacklogDirectory", () => {
 	});
 
 	it("uses root backlog.config.yml with built-in backlog folder when backlog_directory is omitted", async () => {
-		await mkdir(join(testDir, "backlog", "tasks"), { recursive: true });
+		await mkdir(join(testDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks"), { recursive: true });
 		await writeFile(join(testDir, "backlog.config.yml"), 'project_name: "Test"\n');
 
 		const resolution = resolveBacklogDirectory(testDir);
 		expect(resolution.source).toBe("backlog");
 		expect(resolution.configSource).toBe("root");
-		expect(resolution.backlogDir).toBe("backlog");
+		expect(resolution.backlogDir).toBe(DEFAULT_DIRECTORIES.BACKLOG);
 		expect(resolution.configPath).toBe(join(testDir, "backlog.config.yml"));
 	});
 
@@ -79,7 +80,7 @@ describe("resolveBacklogDirectory", () => {
 	});
 
 	it("prefers the built-in backlog folder that has a config marker", async () => {
-		await mkdir(join(testDir, "backlog"), { recursive: true });
+		await mkdir(join(testDir, DEFAULT_DIRECTORIES.BACKLOG), { recursive: true });
 		await mkdir(join(testDir, ".backlog", "tasks"), { recursive: true });
 		await writeFile(join(testDir, ".backlog", "config.yml"), 'project_name: "Test"\n');
 

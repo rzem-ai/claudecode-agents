@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { join, relative } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import type { ContentStore } from "../core/content-store.ts";
 import { FileSystem } from "../file-system/operations.ts";
 import { serializeTask } from "../markdown/serializer.ts";
@@ -71,7 +72,7 @@ async function restartWithActiveBranchCollision(
 	await filesystem.saveTask({ ...mainTask, id: "BACK-002", title: "Inherited unchanged task" });
 
 	await $`git init -b main`.cwd(TEST_DIR).quiet();
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Add main task"`.cwd(TEST_DIR).quiet();
 	await $`git switch -c collision-shadow`.cwd(TEST_DIR).quiet();
 
@@ -92,7 +93,7 @@ async function restartWithActiveBranchCollision(
 		);
 	}
 
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Add branch collision"`.cwd(TEST_DIR).quiet();
 	await $`git switch main`.cwd(TEST_DIR).quiet();
 	await startServer();
@@ -111,7 +112,7 @@ async function restartWithActiveRemoteCollision(useSamePath = false): Promise<vo
 	const mainTaskPath = await filesystem.saveTask(mainTask);
 
 	await $`git init -b main`.cwd(TEST_DIR).quiet();
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Add main task"`.cwd(TEST_DIR).quiet();
 
 	remoteRepoDir = createUniqueTestDir("server-task-collision-remote");
@@ -132,7 +133,7 @@ async function restartWithActiveRemoteCollision(useSamePath = false): Promise<vo
 			serializeTask({ ...mainTask, title: "Remote path collision" }),
 		);
 	}
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Move task on remote main"`.cwd(TEST_DIR).quiet();
 	await $`git push origin HEAD:main`.cwd(TEST_DIR).quiet();
 	await $`git switch main`.cwd(TEST_DIR).quiet();
@@ -153,11 +154,11 @@ async function restartWithActiveLegacyCollision(): Promise<void> {
 	const localTaskPath = await filesystem.saveTask(localTask);
 
 	await $`git init -b main`.cwd(TEST_DIR).quiet();
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Add local legacy task"`.cwd(TEST_DIR).quiet();
 	await $`git switch -c legacy-collision-shadow`.cwd(TEST_DIR).quiet();
 	await Bun.write(localTaskPath, serializeTask({ ...localTask, title: "Changed legacy branch task" }));
-	await $`git add backlog`.cwd(TEST_DIR).quiet();
+	await $`git add ${DEFAULT_DIRECTORIES.BACKLOG}`.cwd(TEST_DIR).quiet();
 	await $`git commit -m "Change legacy task on branch"`.cwd(TEST_DIR).quiet();
 	await $`git switch main`.cwd(TEST_DIR).quiet();
 	await startServer();

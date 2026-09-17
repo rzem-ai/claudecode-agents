@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import * as fsPromises from "node:fs/promises";
 import { mkdir, readdir, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { FileSystem } from "../file-system/operations.ts";
 import { serializeTask } from "../markdown/serializer.ts";
 import type { BacklogConfig, Decision, Document, Task } from "../types/index.ts";
@@ -25,13 +26,13 @@ describe("FileSystem", () => {
 	describe("ensureBacklogStructure", () => {
 		it("should create all required directories", async () => {
 			const expectedDirs = [
-				join(TEST_DIR, "backlog"),
-				join(TEST_DIR, "backlog", "tasks"),
-				join(TEST_DIR, "backlog", "drafts"),
-				join(TEST_DIR, "backlog", "archive", "tasks"),
-				join(TEST_DIR, "backlog", "archive", "drafts"),
-				join(TEST_DIR, "backlog", "docs"),
-				join(TEST_DIR, "backlog", "decisions"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "drafts"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "tasks"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "drafts"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "docs"),
+				join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "decisions"),
 			];
 
 			for (const dir of expectedDirs) {
@@ -43,16 +44,16 @@ describe("FileSystem", () => {
 		it("should ignore EEXIST for existing directories", async () => {
 			const projectDir = join(TEST_DIR, "onedrive-project");
 			const expectedDirs = [
-				join(projectDir, "backlog"),
-				join(projectDir, "backlog", "tasks"),
-				join(projectDir, "backlog", "drafts"),
-				join(projectDir, "backlog", "completed"),
-				join(projectDir, "backlog", "archive", "tasks"),
-				join(projectDir, "backlog", "archive", "drafts"),
-				join(projectDir, "backlog", "milestones"),
-				join(projectDir, "backlog", "archive", "milestones"),
-				join(projectDir, "backlog", "docs"),
-				join(projectDir, "backlog", "decisions"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "drafts"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "completed"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "archive", "tasks"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "archive", "drafts"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "milestones"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "archive", "milestones"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "docs"),
+				join(projectDir, DEFAULT_DIRECTORIES.BACKLOG, "decisions"),
 			];
 
 			for (const dir of expectedDirs) {
@@ -90,7 +91,7 @@ describe("FileSystem", () => {
 
 		it("should not ignore EEXIST when the path is not a directory", async () => {
 			const projectDir = join(TEST_DIR, "file-conflict-project");
-			const backlogDir = join(projectDir, "backlog");
+			const backlogDir = join(projectDir, DEFAULT_DIRECTORIES.BACKLOG);
 			const tasksPath = join(backlogDir, "tasks");
 			await mkdir(backlogDir, { recursive: true });
 			await Bun.write(tasksPath, "not a directory");
@@ -288,7 +289,7 @@ Invalid content`,
 			expect(task).toBeNull();
 
 			// Check that file exists in archive
-			const archiveFiles = await readdir(join(TEST_DIR, "backlog", "archive", "tasks"));
+			const archiveFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "tasks"));
 			expect(archiveFiles.some((f) => f.startsWith("task-1"))).toBe(true);
 		});
 
@@ -299,11 +300,11 @@ Invalid content`,
 			expect(demoted).toBe(true);
 
 			// Task should be removed from tasks directory
-			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			const tasksFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks"));
 			expect(tasksFiles.some((f) => f.startsWith("task-1"))).toBe(false);
 
 			// Draft should exist with new draft- ID
-			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			const draftsFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "drafts"));
 			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(true);
 
 			// Verify the demoted draft can be loaded and has correct ID
@@ -373,11 +374,11 @@ Invalid content`,
 			expect(promoted).toBe(true);
 
 			// Draft should be removed from drafts directory
-			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			const draftsFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "drafts"));
 			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(false);
 
 			// Task should exist with new task- ID
-			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			const tasksFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks"));
 			expect(tasksFiles.some((f) => f.startsWith("task-1"))).toBe(true);
 
 			// Verify the promoted task can be loaded and has correct ID
@@ -448,11 +449,11 @@ Invalid content`,
 			expect(promoted).toBe(true);
 
 			// Draft should be removed
-			const draftsFiles = await readdir(join(TEST_DIR, "backlog", "drafts"));
+			const draftsFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "drafts"));
 			expect(draftsFiles.some((f) => f.startsWith("draft-1"))).toBe(false);
 
 			// Task should exist with custom JIRA- prefix
-			const tasksFiles = await readdir(join(TEST_DIR, "backlog", "tasks"));
+			const tasksFiles = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks"));
 			expect(tasksFiles.some((f) => f.startsWith("jira-1"))).toBe(true);
 
 			// Verify the promoted task can be loaded with the custom prefix
@@ -464,7 +465,7 @@ Invalid content`,
 		it("should not reuse completed task IDs when promoting draft", async () => {
 			// Create a completed task directly in the completed directory
 			// This simulates a task that was created and completed before the draft
-			const completedDir = join(TEST_DIR, "backlog", "completed");
+			const completedDir = join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "completed");
 			await mkdir(completedDir, { recursive: true });
 
 			const completedTask: Task = {
@@ -504,13 +505,13 @@ Invalid content`,
 			await filesystem.saveDraft(sampleDraft);
 
 			const archived = await filesystem.archiveDraft("draft-1");
-			expect(archived?.sourcePath).toContain(join("backlog", "drafts"));
-			expect(archived?.targetPath).toContain(join("backlog", "archive", "drafts"));
+			expect(archived?.sourcePath).toContain(join(DEFAULT_DIRECTORIES.BACKLOG, "drafts"));
+			expect(archived?.targetPath).toContain(join(DEFAULT_DIRECTORIES.BACKLOG, "archive", "drafts"));
 
 			const draft = await filesystem.loadDraft("draft-1");
 			expect(draft).toBeNull();
 
-			const files = await readdir(join(TEST_DIR, "backlog", "archive", "drafts"));
+			const files = await readdir(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "drafts"));
 			expect(files.some((f) => f.startsWith("draft-1"))).toBe(true);
 		});
 	});
@@ -566,10 +567,10 @@ Invalid content`,
 
 	describe("directory accessors", () => {
 		it("should provide correct directory paths", () => {
-			expect(filesystem.tasksDir).toBe(join(TEST_DIR, "backlog", "tasks"));
-			expect(filesystem.archiveTasksDir).toBe(join(TEST_DIR, "backlog", "archive", "tasks"));
-			expect(filesystem.decisionsDir).toBe(join(TEST_DIR, "backlog", "decisions"));
-			expect(filesystem.docsDir).toBe(join(TEST_DIR, "backlog", "docs"));
+			expect(filesystem.tasksDir).toBe(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks"));
+			expect(filesystem.archiveTasksDir).toBe(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "tasks"));
+			expect(filesystem.decisionsDir).toBe(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "decisions"));
+			expect(filesystem.docsDir).toBe(join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "docs"));
 		});
 	});
 

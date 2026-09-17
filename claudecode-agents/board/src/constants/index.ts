@@ -2,8 +2,8 @@
  * Default directory structure for backlog projects
  */
 export const DEFAULT_DIRECTORIES = {
-	/** Main backlog directory */
-	BACKLOG: "backlog",
+	/** The board directory under the board root */
+	BACKLOG: "board",
 	/** Hidden backlog directory */
 	HIDDEN_BACKLOG: ".backlog",
 	/** Active tasks directory */

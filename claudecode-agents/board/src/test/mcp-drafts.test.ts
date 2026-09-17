@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { McpServer } from "../mcp/server.ts";
 import { registerTaskTools } from "../mcp/tools/tasks/index.ts";
 import { createUniqueTestDir, initializeFilesystemTestProject, safeCleanup } from "./test-utils.ts";
@@ -211,7 +212,7 @@ describe("MCP draft support via task tools", () => {
 			},
 		});
 
-		const draftsDir = join(TEST_DIR, "backlog", "drafts");
+		const draftsDir = join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "drafts");
 		const twinPath = join(draftsDir, "draft-001 - Alpha two.md");
 		await Bun.write(
 			twinPath,
@@ -279,7 +280,7 @@ describe("MCP draft support via task tools", () => {
 		const archivedDraft = await mcpServer.filesystem.loadDraft("draft-1");
 		expect(archivedDraft).toBeNull();
 
-		const archiveDir = join(TEST_DIR, "backlog", "archive", "drafts");
+		const archiveDir = join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "archive", "drafts");
 		const archiveFiles = await readdir(archiveDir);
 		expect(archiveFiles.some((file) => file.startsWith("draft-1"))).toBe(true);
 	});

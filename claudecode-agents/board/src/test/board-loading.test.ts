@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { BacklogConfig, Task } from "../types/index.ts";
 import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
@@ -95,7 +96,7 @@ describe("Board Loading with checkActiveBranches", () => {
 
 		it("should handle empty task list gracefully", async () => {
 			// Remove all tasks
-			await $`rm -rf backlog/tasks/*`.cwd(TEST_DIR).quiet();
+			await $`rm -rf ${DEFAULT_DIRECTORIES.BACKLOG}/tasks/*`.cwd(TEST_DIR).quiet();
 
 			const tasks = await core.loadTasks();
 			expect(tasks).toEqual([]);

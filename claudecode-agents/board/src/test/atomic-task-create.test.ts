@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import { CREATE_LOCK_ERROR_MESSAGE } from "../file-system/operations.ts";
 import type { Task } from "../types";
@@ -222,7 +223,7 @@ describe("atomic task creation", () => {
 		const releaseFirstWrite = createDeferred<void>();
 		let writeEntries = 0;
 		const originalWrite = Bun.write;
-		const milestonePathPrefix = `${testDir}/backlog/milestones/`.replace(/\\/g, "/");
+		const milestonePathPrefix = `${testDir}/${DEFAULT_DIRECTORIES.BACKLOG}/milestones/`.replace(/\\/g, "/");
 
 		Bun.write = (async (...args: Parameters<typeof Bun.write>) => {
 			const targetPath = String(args[0]).replace(/\\/g, "/");

@@ -2,18 +2,19 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
 
 let TEST_DIR: string;
 
 const readConfigFile = async (root: string): Promise<string> => {
-	const configPath = join(root, "backlog", "config.yml");
+	const configPath = join(root, DEFAULT_DIRECTORIES.BACKLOG, "config.yml");
 	return await readFile(configPath, "utf8");
 };
 
 const writeConfigFile = async (root: string, content: string): Promise<void> => {
-	const configPath = join(root, "backlog", "config.yml");
+	const configPath = join(root, DEFAULT_DIRECTORIES.BACKLOG, "config.yml");
 	await writeFile(configPath, content);
 };
 

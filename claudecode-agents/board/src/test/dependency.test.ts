@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { Task } from "../types/index.ts";
 import { taskIdsEqual } from "../utils/task-path.ts";
@@ -551,7 +552,7 @@ describe("Self-referential and cyclic dependencies", () => {
 		expect(completed?.filePath).toBeDefined();
 		if (!completed?.filePath) return;
 		await Bun.write(
-			join(tempDir, "backlog", "tasks", "task-3 - Contested twin.md"),
+			join(tempDir, DEFAULT_DIRECTORIES.BACKLOG, "tasks", "task-3 - Contested twin.md"),
 			await Bun.file(completed.filePath).text(),
 		);
 
