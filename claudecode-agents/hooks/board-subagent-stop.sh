@@ -31,16 +31,15 @@
 #      applies in CI: see hooks/README.md, "The handoff-format check".
 #
 # Every board failure is soft. The only thing that exits 2 here is a malformed
-# handoff, and it exits 2 for that reason alone - never because Linear was
-# unreachable.
+# handoff, and it exits 2 for that reason alone - never because the board could
+# not be written.
 set -euo pipefail
 
 HOOK=SubagentStop
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/linear.sh
-. "$HOOK_DIR/lib/linear.sh"
+# shellcheck source=lib/board.sh
+. "$HOOK_DIR/lib/board.sh"
 
-trap 'linear_tmp_cleanup' EXIT
 trap 'board_log "$HOOK" "unexpected error on line $LINENO; session continues"; exit 0' ERR
 
 # --------------------------------------------------------------- the validator

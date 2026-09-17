@@ -9,10 +9,9 @@ set -euo pipefail
 
 HOOK=SubagentStart
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/linear.sh
-. "$HOOK_DIR/lib/linear.sh"
+# shellcheck source=lib/board.sh
+. "$HOOK_DIR/lib/board.sh"
 
-trap 'linear_tmp_cleanup' EXIT
 trap 'board_log "$HOOK" "unexpected error on line $LINENO; session continues"; exit 0' ERR
 
 input="$(cat)"
@@ -59,7 +58,7 @@ if [ -z "$page_id" ] && [ -n "${CLAUDECODE_AGENTS_BOARD_PAGE_ID:-}" ]; then
   if page_id="$(normalise_page_id "$CLAUDECODE_AGENTS_BOARD_PAGE_ID")"; then
     source_of_id="CLAUDECODE_AGENTS_BOARD_PAGE_ID"
   else
-    board_log "$HOOK" "CLAUDECODE_AGENTS_BOARD_PAGE_ID is set but is not a Linear issue id, identifier or URL"
+    board_log "$HOOK" "CLAUDECODE_AGENTS_BOARD_PAGE_ID is set but is not a board item id or task file path"
     page_id=""
   fi
 fi

@@ -12,8 +12,8 @@
 # marker file, and the output - so the comment says only those things.
 #
 # The board write happens on both paths, and it happens before the exit, so the
-# gate firing never costs the board its update. Linear being unreachable never
-# changes the verdict: the exit 2 is about the tests and nothing else.
+# gate firing never costs the board its update. A board that cannot be written
+# never changes the verdict: the exit 2 is about the tests and nothing else.
 #
 # "Tests pass" is not something the harness tells us, so it is resolved in
 # order: a configured test command, then a test-status marker file, then the
@@ -22,10 +22,9 @@ set -euo pipefail
 
 HOOK=TaskCompleted
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/linear.sh
-. "$HOOK_DIR/lib/linear.sh"
+# shellcheck source=lib/board.sh
+. "$HOOK_DIR/lib/board.sh"
 
-trap 'linear_tmp_cleanup' EXIT
 trap 'board_log "$HOOK" "unexpected error on line $LINENO; task allowed through"; exit 0' ERR
 
 CLAUDECODE_AGENTS_TEST_GATE="${CLAUDECODE_AGENTS_TEST_GATE:-lenient}"
@@ -175,7 +174,7 @@ fi
 # comment is bounded well under the cap - the test detail is at most fifteen
 # lines cut to 200 characters each - so it should never be the one that cuts.
 # It can be if board.env lowers BOARD_COMMENT_MAX_CHARS, and the archiving
-# lives in linear_comment either way, so all this hook owes it is a label.
+# lives in board_cap_comment either way, so all this hook owes it is a label.
 BOARD_RUN_SESSION="$session_id"
 BOARD_RUN_STATUS="test gate: $verdict"
 
