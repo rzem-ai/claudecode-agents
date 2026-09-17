@@ -114,12 +114,12 @@ The `migration-checklist` skill runs a superset of this. Minimum, every time:
 
 A `tools` line grants an MCP server by the name Claude Code registered it under - `mcp__<server>` for the whole server, `mcp__<server>__<tool>` for one tool. The name is case-sensitive and nothing normalises it. A body naming a server that does not exist grants nothing, raises no error and prints no warning: the agent just runs without those tools, and the first sign of trouble is a `researcher` that cannot reach Hugging Face or a `spec-writer` that cannot read the board. A wrong server name is a silent no-op, which is why it belongs in this file rather than in someone's memory.
 
-The fleet uses three servers today, all reached as claude.ai connectors. A connector is registered as `claude_ai_<Name>`, with the spaces in its display name turned into underscores, so the identifiers below are what `claude mcp list` and the tool list actually show:
+The fleet uses three servers today: two reached as claude.ai connectors and one shipped by this plugin. A connector is registered as `claude_ai_<Name>`, with the spaces in its display name turned into underscores. A plugin server is keyed `plugin:<plugin>:<server>`, and every character outside `[a-zA-Z0-9_-]` becomes an underscore, so the colons turn into underscores and a hyphen inside the plugin name survives. `claude mcp list` shows the connectors but not a plugin's own server, and on Claude Code 2.1.267 a plugin loaded with `--plugin-dir` brings its skills, commands and agents but never registers its `.mcp.json`, so the identifiers below are what a session's tool list actually shows rather than what either of those two routes reports:
 
 | Server | Granted as | Carried by | Where the name came from |
 |---|---|---|---|
 | rzem-memory, the "Memory" connector at memory-mcp.rzem.ai | `mcp__claude_ai_Memory__<tool>` | all ten agents | `claude mcp list` on the human's laptop, 9 September 2026 |
-| Linear | `mcp__claude_ai_Linear__<tool>`, granted per tool and denied per tool | `spec-writer`, `fleet-steward`, the lead | tool listing in a live session, 12 September 2026 |
+| board, this plugin's own server | `mcp__plugin_claudecode-agents_board__<tool>`, granted per tool and denied per tool | `spec-writer`, `fleet-steward`, the lead | tool listing in a live session carrying the server key `plugin:claudecode-agents:board`, 18 September 2026 |
 | Hugging Face | `mcp__claude_ai_Hugging_Face` | `researcher` | `claude mcp list` on the human's laptop, 9 September 2026 |
 
 Context7 is not installed, so `coder` does not carry it. When it is, it arrives either as a connector (`mcp__claude_ai_Context7`) or, from the official plugin, as `mcp__plugin_context7_<server>`. Add the entry to the body only once `claude mcp list` shows it, and record the spelling here first.
