@@ -123,15 +123,17 @@ export async function initializeProject(
 	}
 	const projectRoot = core.filesystem.rootDir;
 	const effectiveFilesystemOnly = filesystemOnly || existingConfig?.filesystemOnly === true;
-	const normalizedAdvancedConfig = effectiveFilesystemOnly
-		? {
-				...advancedConfig,
-				checkActiveBranches: false,
-				remoteOperations: false,
-				bypassGitHooks: false,
-				autoCommit: false,
-			}
-		: advancedConfig;
+	const normalizedAdvancedConfig = {
+		...advancedConfig,
+		...(effectiveFilesystemOnly
+			? { checkActiveBranches: false, remoteOperations: false, bypassGitHooks: false }
+			: {}),
+		// The git layer is not carried, so auto-commit is off in every config init writes,
+		// whatever the caller asked for and whatever an existing config says. Forcing it here
+		// keeps `auto_commit: true` out of the serialised file as well; Core.shouldAutoCommit
+		// is the runtime guarantee.
+		autoCommit: false,
+	};
 	const hasDefaultEditorOverride = Object.hasOwn(normalizedAdvancedConfig, "defaultEditor");
 	const hasZeroPaddedIdsOverride = Object.hasOwn(normalizedAdvancedConfig, "zeroPaddedIds");
 	const hasDefinitionOfDoneOverride = Object.hasOwn(normalizedAdvancedConfig, "definitionOfDone");
@@ -279,7 +281,7 @@ export async function initializeProject(
 				projectRoot,
 				core.gitOps,
 				agentInstructions,
-				config.autoCommit,
+				await core.shouldAutoCommit(),
 			);
 			mcpResults.agentFiles = formatAgentInstructionResults(agentInstructionResults);
 		} catch (error) {
