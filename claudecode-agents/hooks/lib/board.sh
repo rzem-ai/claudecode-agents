@@ -299,6 +299,10 @@ board_cli() {
   # $1 hook name, rest arguments. stdout is the command's; failures are logged.
   local hook="$1"; shift
   local err rc
+  # What to call this call in the log. After the shift $1 is always "task", so
+  # a failure line built from it said "board task failed" for every subcommand
+  # alike; the first two words are what tells an edit from a view.
+  local what="$1 ${2:-}"
   [ -x "$BOARD_SHIM" ] || { board_log "$hook" "board shim missing at $BOARD_SHIM"; return 1; }
   err="$(mktemp "${TMPDIR:-/tmp}/board-err.XXXXXX")" || return 1
   # timeout(1) is GNU. Homebrew's coreutils installs it as gtimeout, and a
@@ -316,7 +320,7 @@ board_cli() {
     "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
   fi
   if [ "$rc" -ne 0 ]; then
-    board_log "$hook" "board $1 failed (exit $rc): $(head -c 300 "$err" | tr '\n' ' ')"
+    board_log "$hook" "board $what failed (exit $rc): $(head -c 300 "$err" | tr '\n' ' ')"
   fi
   rm -f "$err"
   return "$rc"

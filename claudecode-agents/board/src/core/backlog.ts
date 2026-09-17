@@ -998,7 +998,7 @@ export class Core {
 	}
 
 	/**
-	 * The git layer is not carried, so nothing auto-commits — not on the config's say-so
+	 * The git layer is not carried, so nothing auto-commits - not on the config's say-so
 	 * and not on a caller's `--auto-commit` override. Every git call site in this file is
 	 * guarded by this, which is why the stub in git/operations.ts can throw.
 	 */

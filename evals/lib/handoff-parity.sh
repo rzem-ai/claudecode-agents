@@ -19,8 +19,8 @@
 # Usage:  evals/lib/handoff-parity.sh [-v]
 #           -v  also print each implementation's reasons for every case
 #
-# Nothing here touches Linear: the hook runs with CLAUDECODE_AGENTS_BOARD=off and a
-# throwaway config and state directory.
+# Nothing here touches the board: the hook runs with CLAUDECODE_AGENTS_BOARD=off
+# and a throwaway config and state directory.
 
 set -uo pipefail
 
@@ -45,8 +45,6 @@ command -v jq >/dev/null 2>&1 || {
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/handoff-parity.XXXXXX") || exit 2
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/config" "$TMP/state"
-printf 'not-a-real-token\n' > "$TMP/config/linear.token"
-chmod 600 "$TMP/config/linear.token"
 
 export CLAUDECODE_AGENTS_CONFIG_DIR="$TMP/config"
 export CLAUDECODE_AGENTS_STATE_DIR="$TMP/state"

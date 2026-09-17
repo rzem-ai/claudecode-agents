@@ -6,7 +6,7 @@
 # Exit 127 with a one-line reason otherwise; the hook library treats that as a soft failure.
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
-if [ -x "$HOME/.local/bin/board" ]; then exec "$HOME/.local/bin/board" "$@"; fi
+if [ -x "${HOME:-}/.local/bin/board" ]; then exec "${HOME:-}/.local/bin/board" "$@"; fi
 if [ -x "$here/bin/board" ]; then exec "$here/bin/board" "$@"; fi
 if command -v bun >/dev/null 2>&1; then exec bun "$here/src/cli.ts" "$@"; fi
 printf 'board: no binary at ~/.local/bin/board or %s/bin/board and no bun on PATH\n' "$here" >&2

@@ -45,7 +45,7 @@ set -euo pipefail
 # ever need editing.
 #
 # Shape:  op://<vault>/<item>/<field>
-# Check one with:  op read 'op://Agents/Linear/credential'
+# Check one with:  op read 'op://Fleet/rzem-memory-lead/credential'
 #
 # The vault holds fleet secrets only (section 12), so a service account scoped
 # to it cannot reach anything personal.

@@ -50,8 +50,9 @@ against upstream knows these lines were ours rather than drifted.
   banner in `src/server/index.ts`. The "powered by" link to backlog.md in
   `src/web/components/Navigation.tsx` was removed. The `backlog.md:` and
   `backlog-theme` browser-storage key prefixes are deliberately left alone, so
-  viewers keep the flags they already hold, and `src/board.ts`'s markdown
-  export still carries its "powered by Backlog.md" line.
+  viewers keep the flags they already hold. Both of `src/board.ts`'s markdown
+  export headers, the board and the by-milestone one, say "powered by Board"
+  too.
 - Two JSX header comments, in `src/web/components/DecisionDetail.tsx` and
   `src/web/components/DocumentationDetail.tsx`, were trimmed to
   `{/* Header Section */}`. Upstream's version ended with a clause naming two

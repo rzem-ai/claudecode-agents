@@ -228,8 +228,8 @@ function parseConfigListValue(content: string, key: ConfigListKey, configPath: s
 /**
  * The git layer is not carried, so filesystem-only is the only mode this board has.
  * Whatever config.yml says about auto-commit, branch scanning or remote operations,
- * the config handed to callers says filesystem-only. Forcing it here — at the single
- * point every reader goes through — is what makes the git stub unreachable.
+ * the config handed to callers says filesystem-only. Forcing it here, at the single
+ * point every reader goes through, is what makes the git stub unreachable.
  */
 function forceFilesystemOnly(config: BacklogConfig): BacklogConfig {
 	config.filesystemOnly = true;

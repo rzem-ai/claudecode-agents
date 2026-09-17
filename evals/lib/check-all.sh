@@ -2,8 +2,8 @@
 #
 # check-all.sh - every deterministic check in the repository, in one command.
 #
-# None of these calls a model, opens a network connection, or touches Linear,
-# so this is the thing to run before a commit and the thing CI should run. The
+# None of these calls a model, opens a network connection, or writes to a real
+# board, so this is the thing to run before a commit and CI should run it. The
 # model evals under evals/run.sh are separate and cost money.
 #
 #   handoff-parity        the two handoff validators agree, 28 fixtures
@@ -77,10 +77,14 @@ else
         src/test/no-git.test.ts
         src/test/serve-board.test.ts
     )
-    BOARD_TMP=$(mktemp -d)
+    BOARD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-all-board.XXXXXX")
     board_failed=0
     (
         cd "$REPO_ROOT/claudecode-agents/board" || exit 1
+        # A fresh clone has no node_modules, and tsc then reports hundreds of
+        # missing-module errors that look like the package is broken rather
+        # than uninstalled.
+        [ -d node_modules ] || bun install --frozen-lockfile >/dev/null || exit 1
         bunx tsc --noEmit || exit 1
         bun build --target=bun src/cli.ts --outdir "$BOARD_TMP" >/dev/null || exit 1
         if [ "${CHECK_ALL_BOARD_FULL:-}" = "1" ]; then

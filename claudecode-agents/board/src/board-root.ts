@@ -8,8 +8,22 @@ export const BOARD_DIR = "board";
 
 export function resolveBoardRoot(env: NodeJS.ProcessEnv = process.env): string {
 	const fromEnv = env[BOARD_ROOT_ENV]?.trim();
-	const home = env.HOME ?? env.USERPROFILE ?? "";
-	const root = resolve(fromEnv && fromEnv.length > 0 ? fromEnv : join(home, ".memory"));
+	let root: string;
+	if (fromEnv && fromEnv.length > 0) {
+		root = resolve(fromEnv);
+	} else {
+		// No explicit root and no home to default under. resolve("") would hand
+		// back the current working directory, which is exactly the cwd-derived
+		// discovery this module exists to refuse: run the binary from inside a
+		// worktree and it would find or create a board there.
+		const home = env.HOME ?? env.USERPROFILE ?? "";
+		if (home.length === 0) {
+			throw new Error(
+				`no home directory to default the board root under; set ${BOARD_ROOT_ENV} to the memory tree`,
+			);
+		}
+		root = resolve(join(home, ".memory"));
+	}
 	let isDirectory = false;
 	try {
 		isDirectory = statSync(root).isDirectory();

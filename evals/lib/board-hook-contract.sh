@@ -20,8 +20,9 @@
 #
 # Usage:  evals/lib/board-hook-contract.sh [-v]
 #
-# Nothing here touches Linear: CLAUDECODE_AGENTS_BOARD=off, a throwaway config and
-# state directory, and no token is ever loaded.
+# Nothing here touches a real board: CLAUDECODE_AGENTS_BOARD=off for the offline
+# cases, a throwaway config and state directory, and the live pass below runs
+# against a board root created under $TMP.
 
 set -uo pipefail
 
@@ -123,6 +124,11 @@ run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship [board:https://linear.app/rzemai/issue/RZE-123/fix-thing-2]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
 ! log_has "names board item"; check url-is-not-a-ref "a Linear URL is no longer a ref" $?
+
+run_hook board-task-completed.sh \
+    "$(jq -nc --arg s "Ship [board:11111111-1111-1111-1111-111111111111]" --arg c "$TMP" \
+        '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
+! log_has "names board item"; check uuid-is-not-a-ref "a UUID is no longer a ref" $?
 
 printf '\nTaskCompleted: only an explicit issue task closes an issue\n'
 
@@ -405,10 +411,28 @@ printf '\nLive backend: the hooks move a real item through the binary\n'
 # cases run the binary against a throwaway root - never the memory tree - so a
 # shim that cannot be found, a status spelling the config does not hold, or a
 # comment flag the CLI has renamed is caught here rather than in a real run.
+#
+# Which board, though. The shim prefers ~/.local/bin/board, which on an
+# installed machine is a binary from some earlier build: a branch that changes
+# src/cli.ts would be "live-tested" against code it did not write, and a CLI
+# regression would pass here and fail in the real run. So when bun is present
+# the live pass runs the checkout's own cli.ts through a wrapper and points the
+# hook library at it with BOARD_SHIM, which the library honours. Only a machine
+# without bun falls back to the shim and whatever it resolves.
 SHIM="$REPO_ROOT/claudecode-agents/board/board.sh"
+LIVE_VIA="the shim, $SHIM"
+if command -v bun >/dev/null 2>&1; then
+    SHIM="$TMP/board-from-checkout"
+    printf '#!/usr/bin/env bash\nexec bun "%s" "$@"\n' \
+        "$REPO_ROOT/claudecode-agents/board/src/cli.ts" > "$SHIM"
+    chmod +x "$SHIM"
+    LIVE_VIA="bun on the checkout's src/cli.ts"
+fi
+export BOARD_SHIM="$SHIM"
 if ! "$SHIM" --version >/dev/null 2>&1; then
-    printf '  skipped: board binary not resolvable (%s); build it with claudecode-agents/board/build.sh\n' "$SHIM"
+    printf '  skipped: board not resolvable via %s; build it with claudecode-agents/board/build.sh\n' "$LIVE_VIA"
 else
+    printf '  running against %s\n' "$LIVE_VIA"
     LIVE="$TMP/live"; mkdir -p "$LIVE/board"
     printf 'project_name: "t"\ntask_prefix: "BD"\nstatuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]\ndefault_status: "To Do"\n' > "$LIVE/board/config.yml"
     export CLAUDECODE_AGENTS_BOARD_ROOT="$LIVE"
