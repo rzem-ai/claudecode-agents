@@ -958,6 +958,33 @@ git add -A && git commit -m "board: the web UI says Board and loses the init, re
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
+### Task 6b: Restore coverage of carried behaviour the old CLI's tests carried
+
+Added during execution. Task 3 deleted every upstream test that drove the old CLI as a subprocess, and about twenty of those were the only tests of behaviour this package still carries and the hooks depend on.
+
+**Files:**
+- Create: `claudecode-agents/board/src/test/cli-board-behaviour.test.ts`
+
+**Interfaces:**
+- Consumes: the thin CLI from Task 3, driven as a subprocess against a temporary root exactly as `src/test/cli-board.test.ts` does (copy its `board()` helper and its `beforeAll` fixture).
+
+- [ ] **Step 1: Write the tests, one `describe` per behaviour, each asserting through `task view --json` after the edit**
+
+Cover, with one or two cases each: a comment appended with author and text lands in `comments` with `author` and `body` and a date; `--ac` on create then `--check-ac 1` flips `acceptanceCriteria[0].checked` and `acceptanceCriteriaCompleted`; `--append-notes` twice yields both lines in order in `implementationNotes`; `--plan` then `--append-plan` replaces then appends; `--dep BD-1` on a second task makes `readiness.isBlocked` true while BD-1 is not Done and false after `task edit BD-1 -s Done`; `--final-summary` lands in `finalSummary`; a second `task create` with `-p BD-1` gets id `BD-1.1` and `parentTaskId` `BD-1`; a title containing `<!-- SECTION:DESCRIPTION:BEGIN -->` is refused (section-marker safety); `task list --status "Blocked by human" --json` returns only that status; `task search "<word from a title>" --json` returns that task with `kind` `search`.
+
+- [ ] **Step 2: Run them**
+
+Run: `bun test src/test/cli-board-behaviour.test.ts`
+Expected: all pass. A case that fails because the carried core behaves differently from what upstream's deleted test asserted is a finding for the report, not something to paper over: leave the failing case in with `it.todo` and the reason.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add src/test/cli-board-behaviour.test.ts && git commit -m "board: behaviour tests through the thin CLI for what the old CLI tests covered
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+```
+
 ### Task 7: Build, shim, and the check suite
 
 **Files:**
