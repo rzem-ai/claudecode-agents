@@ -1491,7 +1491,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 12: Skills, commands, plan, changelog
 
 **Files:**
-- Modify: `claudecode-agents/skills/board/SKILL.md`, `claudecode-agents/skills/glossary/SKILL.md:10-14,27-28`, `claudecode-agents/commands/kickoff.md:21-41`, `docs/fleet-plan.md` (top revision paragraphs), `claudecode-agents/.claude-plugin/plugin.json:6,21`, `claudecode-agents/CHANGELOG.md`, `~/.memory/projects/claudecode-agents/rzemai-linear-board-conventions.md`
+- Modify: `claudecode-agents/skills/board/SKILL.md`, `claudecode-agents/skills/glossary/SKILL.md:10-14,27-28`, `claudecode-agents/commands/kickoff.md:21-41`, `docs/fleet-plan.md` (top revision paragraphs), `claudecode-agents/.claude-plugin/plugin.json:6,21`, `claudecode-agents/CHANGELOG.md`, `~/.memory/projects/claudecode-agents/rzemai-linear-board-conventions.md`, `claudecode-agents/hooks/README.md` (added during execution; no earlier task owned it: the `lib/linear.sh` table row becomes `lib/board.sh`, the token section goes, the column-move explanation describes the `board` binary and the memory tree instead of GraphQL, and the troubleshooting "HTTP error" symptom becomes the shim's exit 127 and the `board <cmd> failed` log line)
 
 - [ ] **Step 1: The board skill**
 
