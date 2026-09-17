@@ -2,14 +2,17 @@
 #
 # install-home.sh - put the fleet's user-scope files on this machine.
 #
-# Two jobs, plan section 10 and section 12:
+# Three jobs, plan section 10 and section 12:
 #
 #   1. Copy `home/` into `~/.claude` - settings.json, CLAUDE.md, rules/ and any
 #      local agent copies. Copies, never symlinks: Cowork skips a symlinked
 #      ~/.claude/CLAUDE.md (section 8).
-#   2. Render the fleet secrets out of 1Password with `op read` into
-#      ~/.config/claudecode-agents/ at mode 600 - the Linear API key the hooks use and
-#      the ten per-agent rzem-memory credentials (section 6).
+#   2. Render the ten per-agent rzem-memory credentials out of 1Password with
+#      `op read` into ~/.config/claudecode-agents/ at mode 600 (section 6).
+#   3. Make the fleet's board usable here: build the binary into
+#      ~/.local/bin/board, write home/board.config.yml to the memory tree as
+#      board/config.yml when that file does not exist, and give the memory
+#      watcher the board scope. A hand-edited config is never overwritten.
 #
 # What it never touches: ~/.claude/projects/, sessions, history, todos, debug,
 # logs, shell snapshots and plugins/cache. Those are per-machine state and this
@@ -49,10 +52,6 @@ set -euo pipefail
 
 OP_VAULT="Fleet"   # PLACEHOLDER: the dedicated fleet vault's name
 
-# The Linear API key the board hooks read. Hooks read this file; the
-# agents cannot, because ~/.config/claudecode-agents is in permissions.deny.
-OP_REF_LINEAR_TOKEN="op://Agents/Linear/credential"
-
 # Ten per-agent rzem-memory credentials. One identity per agent, because the
 # credential is what fixes the memory namespace (section 6).
 OP_REF_MEMORY_LEAD="op://Fleet/rzem-memory-lead/credential"                     # PLACEHOLDER
@@ -68,11 +67,8 @@ OP_REF_MEMORY_FLEET_STEWARD="op://Fleet/rzem-memory-fleet-steward/credential"   
 
 # destination filename | op:// reference. The destination names are the contract
 # with the hooks and the MCP config, so change them together or not at all.
-# `linear.token` is read by claudecode-agents/hooks/lib/linear.sh - that dot is not a
-# typo, and renaming it here silently stops every board write.
 secret_specs() {
     printf '%s\n' \
-        "linear.token|$OP_REF_LINEAR_TOKEN" \
         "rzem-memory-lead|$OP_REF_MEMORY_LEAD" \
         "rzem-memory-scout|$OP_REF_MEMORY_SCOUT" \
         "rzem-memory-spec-writer|$OP_REF_MEMORY_SPEC_WRITER" \
@@ -123,7 +119,7 @@ warn() { printf '%s: warning: %s\n' "$SCRIPT_NAME" "$*" >&2; }
 die()  { printf '%s: error: %s\n' "$SCRIPT_NAME" "$*" >&2; exit 1; }
 
 usage() {
-    sed -n '3,30p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '3,34p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 # ---------------------------------------------------------------------------
@@ -404,10 +400,13 @@ install_one() {
 }
 
 install_tree() {
-    # $1 source directory, $2 label for the log, $3 optional relative prefix to
-    # skip. The base tree passes "hosts/" so per-box overlays are not installed
-    # wholesale; the overlay for this box is applied afterwards, on its own.
-    local src="$1" label="$2" skip="${3:-}" file rel
+    # $1 source directory, $2 label for the log, then any number of relative
+    # prefixes to skip. The base tree passes "hosts/" so per-box overlays are not
+    # installed wholesale - the overlay for this box is applied afterwards, on
+    # its own - and "board.config.yml", which is a template for the memory tree
+    # and belongs to install_board, not to ~/.claude.
+    local src="$1" label="$2" file rel skip
+    shift 2
     [ -d "$src" ] || return 0
     say ""
     say "$label ($src -> $CLAUDE_DIR)"
@@ -417,11 +416,11 @@ install_tree() {
         case "$(basename "$rel")" in
             .gitkeep|.DS_Store) continue ;;
         esac
-        if [ -n "$skip" ]; then
+        for skip in "$@"; do
             case "$rel" in
-                "$skip"*) continue ;;
+                "$skip"*) continue 2 ;;
             esac
-        fi
+        done
         install_one "$file" "$rel"
     done < <(find "$src" -type f -print0)
 }
@@ -504,6 +503,61 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# The board
+# ---------------------------------------------------------------------------
+#
+# The board lives in the memory tree, not in ~/.claude: the tree is already a
+# git clone synced across the boxes, so the tasks follow the machines for free.
+# This writes board/config.yml only when it does not exist - a hand edit there
+# is the machine's own, and outranks the template.
+
+install_board() {
+    local tree="${CLAUDECODE_AGENTS_BOARD_ROOT:-$HOME/.memory}"
+    local pkg="$REPO_ROOT/claudecode-agents/board"
+    local cfg="$tree/board/config.yml"
+    local watcher="$tree/.sync/memory-watch.sh"
+    say ""
+    say "Board ($tree/board)"
+
+    [ -d "$tree" ] || { warn "no memory tree at $tree; skipping the board (clone alexrzem/memory first)"; return 0; }
+
+    if ! command -v bun >/dev/null 2>&1; then
+        warn "bun is not installed; the board binary cannot be built."
+        warn "  curl -fsSL https://bun.sh/install | bash   then re-run."
+    elif [ "$DRY_RUN" -eq 1 ]; then
+        info "would build    ~/.local/bin/board"
+    else
+        mkdir -p "$HOME/.local/bin"
+        "$pkg/build.sh" "$HOME/.local/bin/board" >/dev/null && info "built          ~/.local/bin/board"
+    fi
+
+    if [ -f "$cfg" ]; then
+        if cmp -s "$HOME_SRC/board.config.yml" "$cfg"; then
+            N_UNCHANGED=$((N_UNCHANGED + 1))
+        else
+            info "kept           board/config.yml (differs from the template; diff below)"
+            diff "$HOME_SRC/board.config.yml" "$cfg" | sed 's/^/    /' || true
+        fi
+    elif [ "$DRY_RUN" -eq 1 ]; then
+        info "would create   board/config.yml"
+    else
+        mkdir -p "$tree/board/tasks" "$tree/board/docs" "$tree/board/milestones"
+        cp "$HOME_SRC/board.config.yml" "$cfg"
+        info "created        board/config.yml"
+        N_CREATED=$((N_CREATED + 1))
+    fi
+
+    if [ -f "$watcher" ] && ! grep -q 'for scope in global hosts projects board' "$watcher"; then
+        if [ "$DRY_RUN" -eq 1 ]; then
+            info "would add      board to the memory watcher's scopes"
+        else
+            sed -i.bak 's/for scope in global hosts projects; do/for scope in global hosts projects board; do/' "$watcher" && rm -f "$watcher.bak"
+            info "updated        memory watcher scopes (restart the watcher to pick it up)"
+        fi
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
 
@@ -542,7 +596,7 @@ if [ "$DO_HOME" -eq 1 ]; then
     if [ "$DRY_RUN" -eq 0 ]; then
         mkdir -p "$CLAUDE_DIR"
     fi
-    install_tree "$HOME_SRC" "Base tree" "hosts/"
+    install_tree "$HOME_SRC" "Base tree" "hosts/" "board.config.yml"
     if [ -d "$HOST_OVERLAY" ]; then
         install_tree "$HOST_OVERLAY" "Host overlay for $HOSTNAME_SHORT"
     fi
@@ -551,6 +605,8 @@ fi
 if [ "$DO_SECRETS" -eq 1 ] && { [ "$OP_READY" -eq 1 ] || [ "$DRY_RUN" -eq 1 ]; }; then
     install_secrets
 fi
+
+install_board
 
 say ""
 say "Summary"

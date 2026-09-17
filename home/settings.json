@@ -84,8 +84,6 @@
         { "name": "OP_SERVICE_ACCOUNT_TOKEN", "mode": "deny" },
         { "name": "NOTION_TOKEN", "mode": "deny" },
         { "name": "NOTION_API_KEY", "mode": "deny" },
-        { "name": "LINEAR_TOKEN", "mode": "deny" },
-        { "name": "LINEAR_API_KEY", "mode": "deny" },
         { "name": "ANTHROPIC_API_KEY", "mode": "deny" },
         { "name": "ANTHROPIC_AUTH_TOKEN", "mode": "deny" },
         { "name": "GITHUB_TOKEN", "mode": "deny" },
@@ -106,8 +104,7 @@
         "pypi.org",
         "files.pythonhosted.org",
         "api.anthropic.com",
-        "api.notion.com",
-        "api.linear.app"
+        "api.notion.com"
       ]
     }
   }

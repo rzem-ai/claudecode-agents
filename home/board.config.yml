@@ -1,0 +1,10 @@
+# The fleet's board. Written by scripts/install-home.sh to ~/.memory/board/config.yml
+# when that file does not exist; a hand edit there is never overwritten.
+project_name: "rzem"
+task_prefix: "BD"
+statuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]
+default_status: "To Do"
+labels: ["outcome/shipped", "outcome/abandoned", "outcome/superseded"]
+projects: ["Agents", "Angus", "art.rzem.guru", "Claude Agents", "Fathom", "files.rzem.ai", "MovingDay", "MyAssist Researcher", "OpenCode Agents", "Photos", "photos.rzem.ai", "SkillfulClaude", "Tabletop", "Tailwind Builder"]
+priorities: ["High", "Medium", "Low"]
+default_port: 6420
