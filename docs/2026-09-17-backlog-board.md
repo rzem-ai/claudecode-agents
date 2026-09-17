@@ -73,7 +73,7 @@ The project list is the fourteen Linear projects as they stand today, for the hu
 |---|---|---|
 | `board_resolve ID` | `board task view ID --json` | Returns the canonical ID and current status, or empty. Replaces the GraphQL resolve |
 | `board_set_status ID COLUMN` | `board task edit ID -s COLUMN` | Column names come from `BOARD_COL_*` as today; the defaults now match the config exactly, so `board.env` needs no override |
-| `board_comment_raw ID TEXT AUTHOR` | `board task edit ID --comment TEXT --comment-author AUTHOR` | Author is the hook's name, `@subagent-stop` and so on, so a card reads who wrote what |
+| `board_comment_raw ID TEXT AUTHOR` | `board task edit ID --comment TEXT --comment-author AUTHOR` | Author is the hook's own name as the hook sets it, `@SubagentStop`, `@SubagentStart`, `@TaskCompleted`, so a card reads who wrote what |
 
 `board_write` and `board_comment`, the two functions the three hooks call, keep their signatures. The comment cap and the archive for cut comments stay: a comment is still a summary and the archive is still the only copy of the rest.
 
@@ -121,7 +121,7 @@ An edit in the browser lands in slarti's clone and reaches the other machines th
 
 ## 9. Install and environment
 
-`scripts/install-home.sh` changes in four places. It drops `linear.token` from the secret specs and its 1Password reference. It requires Bun, prints the one-line installer for it when missing, and builds the plugin's `board` package into `~/.local/bin/board` (section 15). It writes `~/.memory/board/config.yml` from a template in `home/` when the file is missing, and reports a diff when it exists and differs, never overwriting a hand edit. And it adds `board` to the watch list in `~/.memory/.sync/memory-watch.sh` if absent, then reloads the watcher.
+`scripts/install-home.sh` changes in four places. It drops `linear.token` from the secret specs and its 1Password reference. It requires Bun, prints the one-line installer for it when missing, and builds the plugin's `board` package into `~/.local/bin/board` (section 15). It writes `~/.memory/board/config.yml` from a template in `home/` when the file is missing, and reports a diff when it exists and differs, never overwriting a hand edit. And it adds `board` to the watch list in `~/.memory/.sync/memory-watch.sh` if absent and says so; restarting the watcher is the human's step (`launchctl kickstart -k` on the laptop, `systemctl --user restart` on a lab box), because the installer has no business bouncing a per-machine agent it did not start, and the five-minute sync timer covers the gap (ruled during execution).
 
 `home/settings.json` loses `api.linear.app` from the sandbox network allowlist and the two Linear env denies. Nothing is added: the board needs no network and no secret.
 
