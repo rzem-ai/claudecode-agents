@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
-## [Unreleased]
+## [0.17.0] - 2026-09-18
 
 The board moves off a hosted tracker and into the memory tree, and the plugin starts shipping the board itself.
 
