@@ -4,12 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { BacklogServer } from "../server/index.ts";
+import { unusedLoopbackPort } from "./test-ports.ts";
 
 let root = "";
-let server: BacklogServer;
-const port = 6480 + Math.floor(Math.random() * 100);
+let server: BacklogServer | undefined;
+let port = 0;
 
 beforeAll(async () => {
+	port = await unusedLoopbackPort();
 	root = mkdtempSync(join(tmpdir(), "board-serve-"));
 	mkdirSync(join(root, DEFAULT_DIRECTORIES.BACKLOG, "tasks"), { recursive: true });
 	writeFileSync(
@@ -21,7 +23,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await server.stop();
+	// A failed beforeAll should not be masked by a failure to stop a server that never started.
+	await server?.stop();
 	rmSync(root, { recursive: true, force: true });
 });
 

@@ -54,19 +54,22 @@ async function emitTask(c: Core, id: string, json: boolean) {
 }
 
 /** Search results carry bare tasks; the JSON formatter wants rows that already know their readiness. */
-async function withReadiness(c: Core, results: SearchResult[]): Promise<SearchResultInput[]> {
+async function projectSearchRows(c: Core, results: SearchResult[]): Promise<SearchResultInput[]> {
 	const tasks = results.flatMap((result) => (result.type === "task" ? [result.task] : []));
-	const rows = (tasks.length > 0 ? await loadTaskListItems(c, tasks) : [])[Symbol.iterator]();
+	const rows = tasks.length > 0 ? await loadTaskListItems(c, tasks) : [];
+	let rowIndex = 0;
 	const projected: SearchResultInput[] = [];
 	for (const result of results) {
 		if (result.type !== "task") {
 			projected.push(result);
 			continue;
 		}
-		const row = rows.next();
-		// One row per task result, in order, so this never runs out.
-		if (row.done) break;
-		projected.push({ ...result, task: row.value });
+		// One row per task result, in the same order, so this never runs out; if it does, the two
+		// lists have drifted apart and trusting them further would silently mismatch readiness.
+		const row = rows[rowIndex];
+		if (row === undefined) throw new Error("search rows and results have different lengths");
+		projected.push({ ...result, task: row });
+		rowIndex += 1;
 	}
 	return projected;
 }
@@ -201,7 +204,10 @@ task
 			filters: { status: statuses, project: o.project, assignee: o.assignee, labels: o.labels },
 		});
 		const items = await loadTaskListItems(c, tasks);
-		if (o.json) printJson(taskListJson(items));
+		// --plain wins over --json when both are given, so it actually selects the plain path
+		// instead of doing nothing (the plain path was already the default whenever --json was
+		// absent, which made a bare --plain a no-op).
+		if (o.json && !o.plain) printJson(taskListJson(items));
 		else for (const t of items) console.log(`${t.id}  ${t.status}  ${t.title}`);
 	});
 
@@ -210,6 +216,7 @@ task
 	.option("--type <type>", "task, document or decision; repeatable", repeat)
 	.option("--limit <n>")
 	.option("--json")
+	.option("--plain")
 	.action(async (query: string, o) => {
 		const c = core();
 		const service = await c.getSearchService();
@@ -218,8 +225,10 @@ task
 			limit: o.limit ? Number(o.limit) : undefined,
 			types: o.type as SearchResultType[] | undefined,
 		});
-		if (o.json) printJson(searchJson(await withReadiness(c, results), c.filesystem.rootDir, c.filesystem.docsDir));
-		else for (const r of results) console.log(r.type === "task" ? `${r.task.id}  ${r.task.title}` : `${r.type}`);
+		// Same --plain-wins-over-json rule as `task list`.
+		if (o.json && !o.plain) {
+			printJson(searchJson(await projectSearchRows(c, results), c.filesystem.rootDir, c.filesystem.docsDir));
+		} else for (const r of results) console.log(r.type === "task" ? `${r.task.id}  ${r.task.title}` : `${r.type}`);
 	});
 
 program

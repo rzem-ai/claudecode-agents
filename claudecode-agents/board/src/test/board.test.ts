@@ -24,7 +24,7 @@ describe("exportKanbanBoardToFile", () => {
 		await exportKanbanBoardToFile(tasks, ["To Do"], file, "TestProject");
 		const initial = await Bun.file(file).text();
 		expect(initial).toContain("TASK-1");
-		expect(initial).toContain("# Kanban Board Export (powered by Backlog.md)");
+		expect(initial).toContain("# Kanban Board Export (powered by Board)");
 		expect(initial).toContain("Project: TestProject");
 
 		await exportKanbanBoardToFile(tasks, ["To Do"], file, "TestProject");
@@ -209,7 +209,7 @@ describe("exportKanbanBoardToFile", () => {
 		const normalized = content.replace(/^Generated on: .*$/m, "Generated on: TIMESTAMP");
 		expect(normalized).toBe(
 			[
-				"# Kanban Board Export (powered by Backlog.md)",
+				"# Kanban Board Export (powered by Board)",
 				"Generated on: TIMESTAMP",
 				"Project: TestProject",
 				"",
@@ -265,7 +265,7 @@ describe("exportKanbanBoardToFile", () => {
 		const normalized = content.replace(/^Generated on: .*$/m, "Generated on: TIMESTAMP");
 		expect(normalized).toBe(
 			[
-				"# Kanban Board Export (powered by Backlog.md)",
+				"# Kanban Board Export (powered by Board)",
 				"Generated on: TIMESTAMP",
 				"Project: TestProject",
 				"",

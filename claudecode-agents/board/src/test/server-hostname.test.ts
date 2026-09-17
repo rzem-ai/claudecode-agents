@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { FileSystem } from "../file-system/operations.ts";
 import { BacklogServer } from "../server/index.ts";
-import { closeServer, createUniqueTestDir, listenOnEphemeralPort, safeCleanup } from "./test-utils.ts";
+import { createUniqueTestDir, safeCleanup } from "./test-utils.ts";
+import { unusedLoopbackPort } from "./test-ports.ts";
 
 let TEST_DIR: string;
 let server: BacklogServer | null = null;
@@ -15,12 +16,6 @@ type ServerInternals = {
 
 function internals(instance: BacklogServer): ServerInternals {
 	return instance as unknown as ServerInternals;
-}
-
-async function unusedLoopbackPort(): Promise<number> {
-	const { server: portProbe, port } = await listenOnEphemeralPort();
-	await closeServer(portProbe);
-	return port;
 }
 
 describe("BacklogServer loopback binding", () => {
