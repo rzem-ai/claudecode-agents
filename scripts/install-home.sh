@@ -105,6 +105,7 @@ N_UNCHANGED=0
 N_SECRETS_WRITTEN=0
 N_SECRETS_UNCHANGED=0
 N_SECRETS_FAILED=0
+N_BOARD_FAILED=0
 N_SKIPPED=0
 BACKUP_USED=0
 
@@ -516,6 +517,7 @@ install_board() {
     local pkg="$REPO_ROOT/claudecode-agents/board"
     local cfg="$tree/board/config.yml"
     local watcher="$tree/.sync/memory-watch.sh"
+    local log
     say ""
     say "Board ($tree/board)"
 
@@ -527,8 +529,19 @@ install_board() {
     elif [ "$DRY_RUN" -eq 1 ]; then
         info "would build    ~/.local/bin/board"
     else
+        # The build is quiet while it succeeds and loud when it does not: its
+        # output is the only diagnosis there is, and a silent failure here leaves
+        # board.sh falling back to bun or exiting 127 with nobody the wiser.
         mkdir -p "$HOME/.local/bin"
-        "$pkg/build.sh" "$HOME/.local/bin/board" >/dev/null && info "built          ~/.local/bin/board"
+        log=$(mktemp "${TMPDIR:-/tmp}/fleet-board-build.XXXXXX") || die 'cannot create a temporary file for the board build log'
+        if "$pkg/build.sh" "$HOME/.local/bin/board" >"$log" 2>&1; then
+            info "built          ~/.local/bin/board"
+        else
+            sed 's/^/    /' "$log" >&2
+            warn "the board binary could not be built; see the build output above"
+            N_BOARD_FAILED=$((N_BOARD_FAILED + 1))
+        fi
+        rm -f "$log"
     fi
 
     if [ -f "$cfg" ]; then
@@ -537,6 +550,7 @@ install_board() {
         else
             info "kept           board/config.yml (differs from the template; diff below)"
             diff "$HOME_SRC/board.config.yml" "$cfg" | sed 's/^/    /' || true
+            N_SKIPPED=$((N_SKIPPED + 1))
         fi
     elif [ "$DRY_RUN" -eq 1 ]; then
         info "would create   board/config.yml"
@@ -616,6 +630,9 @@ fi
 if [ "$DO_SECRETS" -eq 1 ]; then
     say "  secrets   written $N_SECRETS_WRITTEN, unchanged $N_SECRETS_UNCHANGED, failed $N_SECRETS_FAILED"
 fi
+if [ "$N_BOARD_FAILED" -gt 0 ]; then
+    say "  board     the binary could not be built"
+fi
 if [ "$BACKUP_USED" -eq 1 ]; then
     say "  backups   $BACKUP_DIR"
 fi
@@ -623,9 +640,15 @@ if [ "$DRY_RUN" -eq 1 ]; then
     say ""
     say "Dry run. Re-run without --dry-run to apply."
 fi
-if [ "$N_SECRETS_FAILED" -gt 0 ]; then
+if [ "$N_SECRETS_FAILED" -gt 0 ] || [ "$N_BOARD_FAILED" -gt 0 ]; then
     say ""
-    say "$N_SECRETS_FAILED secret(s) could not be read. The op:// references at the top of"
-    say "this script are placeholders until the fleet vault exists - fill them in."
+    if [ "$N_SECRETS_FAILED" -gt 0 ]; then
+        say "$N_SECRETS_FAILED secret(s) could not be read. The op:// references at the top of"
+        say "this script are placeholders until the fleet vault exists - fill them in."
+    fi
+    if [ "$N_BOARD_FAILED" -gt 0 ]; then
+        say "The board binary was not built, so board.sh falls back to bun or exits 127."
+        say "The build output is above; fix it and re-run."
+    fi
     exit 1
 fi
