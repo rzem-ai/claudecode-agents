@@ -38,3 +38,22 @@ Removed, in the order the plan removed them:
 ## Adjusted at import
 
 - `src/guidelines/project-manager-backlog.md` was a symlink into upstream's `.claude/agents/`; it was a plain copy here until `src/guidelines/` was removed with the instruction machinery.
+
+## Adjusted after import
+
+Prose and copy changed in the carried source, recorded here so a future port
+against upstream knows these lines were ours rather than drifted.
+
+- The web UI says "Board" rather than "Backlog.md": the `<title>` in
+  `src/web/index.html`, the `data-version` string in `src/web/App.tsx`, the
+  version line in `src/web/components/SideNavigation.tsx`, and the server
+  banner in `src/server/index.ts`. The "powered by" link to backlog.md in
+  `src/web/components/Navigation.tsx` was removed. The `backlog.md:` and
+  `backlog-theme` browser-storage key prefixes are deliberately left alone, so
+  viewers keep the flags they already hold, and `src/board.ts`'s markdown
+  export still carries its "powered by Backlog.md" line.
+- Two JSX header comments, in `src/web/components/DecisionDetail.tsx` and
+  `src/web/components/DocumentationDetail.tsx`, were trimmed to
+  `{/* Header Section */}`. Upstream's version ended with a clause naming two
+  third-party trackers as the style reference, and the fleet does not name
+  either in code it ships. Nothing the comments describe changed.

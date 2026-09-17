@@ -29,7 +29,7 @@ Run this step only when `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version` succeed
 - This repo's project name is in the config's `projects` list. Match by name against the repo.
 - Its `labels` carry `outcome/shipped`, `outcome/abandoned` and `outcome/superseded`.
 
-**Setup.** Say what is missing and ask the human before changing anything - the config is one file on a memory tree four machines share. On a yes to adding this repo's project: add the name to `projects` in `board/config.yml`, then commit the memory tree with a `git -C "$CLAUDECODE_AGENTS_BOARD_ROOT"` add and commit. The memory watcher may commit it first, which is fine; what matters is that the change is committed rather than left loose in the tree, because an uncommitted config edit reaches no other machine.
+**Setup.** Say what is missing and ask the human before changing anything - the config is one file on a memory tree four machines share. On a yes: add this repo's name to `projects` in `board/config.yml`, and add any of the three `outcome/*` labels the `labels` list is missing, in the same edit. Then commit the memory tree with a `git -C "$CLAUDECODE_AGENTS_BOARD_ROOT"` add and commit. The memory watcher may commit it first, which is fine; what matters is that the change is committed rather than left loose in the tree, because an uncommitted config edit reaches no other machine. The `statuses` list is not yours to repair here - a tree whose statuses are wrong is an installer problem, and renaming a status under live items is not a kickoff-sized change.
 
 **State the conventions.** End the board section by saying, concretely, what the fleet will use - so the session and the human agree before the first item is filed:
 

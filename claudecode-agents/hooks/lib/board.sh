@@ -269,9 +269,13 @@ page_id_from_task_title() {
 # ------------------------------------------------------------------ the binary
 #
 # The board is the plugin's own binary, reached through one shim. The root is
-# CLAUDECODE_AGENTS_BOARD_ROOT, defaulting to the memory tree; it is exported
-# here, never inherited, so a hook fired inside a worktree cannot be pointed
-# at that worktree by a stray variable.
+# CLAUDECODE_AGENTS_BOARD_ROOT, defaulting to the memory tree and exported so
+# the binary sees it. An inherited value wins, deliberately: that is how the
+# contract suite aims the hooks at a throwaway tree and how the slarti unit
+# points at its own clone. The protection against writing a board into a
+# worktree is not this variable - it is that the binary has no walk up from
+# cwd and no --cwd, so a hook running inside a worktree can never discover a
+# board there by accident. Only an explicit value moves the root.
 
 # The shim sits beside this library, two directories up. BASH_SOURCE is how a
 # sourced file finds itself and the hooks are run by bash, so it is there; a
