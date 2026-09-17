@@ -166,9 +166,10 @@ case "$HOSTNAME_SHORT" in
         OP_AUTH_EXPECTED="service-account"
         HOST_OVERLAY="$HOME_SRC/hosts/eddie"
         ;;
-    marvin)
-        # PLACEHOLDER: the laptop's short hostname. Correct this arm if it is
-        # not `marvin`; an unrecognised host still installs, it just warns.
+    marvin|marvin-2)
+        # PLACEHOLDER: the laptop's short hostname. The arm lists both spellings
+        # the box has had; add the next one if it is renamed again. An
+        # unrecognised host still installs, it just warns.
         HOST_PROFILE="workstation"
         OP_AUTH_EXPECTED="interactive"
         HOST_OVERLAY="$HOME_SRC/hosts/marvin"
