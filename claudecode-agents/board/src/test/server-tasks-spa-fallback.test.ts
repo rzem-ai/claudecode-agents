@@ -296,7 +296,6 @@ describe("BacklogServer task SPA fallback", () => {
 					})
 				).status,
 			).toBe(200);
-			expect((await request("/api/tasks/duplicates")).status).toBe(200);
 			expect(
 				(
 					await request("/api/tasks/reorder", {

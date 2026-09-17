@@ -9,8 +9,6 @@ logic.
 - `tasks/` – consolidated task tooling that delegates to shared Core helpers (including plan/notes/AC editing).
 - `documents/` – document tooling layered on `Core`’s document helpers for list/view/create/update/search flows, including docs-directory-relative path metadata.
 - `tools/dependency-tools.ts` – dependency helpers reusing shared builders.
-- `resources/` – lightweight resource adapters for agents.
-- `guidelines/mcp/` – task workflow content surfaced via MCP.
 
 Everything routes through existing Core APIs so the MCP layer stays a protocol wrapper.
 
@@ -22,10 +20,7 @@ segments such as `..` are rejected by the shared core/filesystem path handling.
 
 ```bash
 # Run the stdio server from the repo
-bun run cli mcp start
-
-# Or via the globally installed CLI
-backlog mcp start
+bun src/cli.ts mcp
 
 # Tests
 bun test src/test/mcp-*.test.ts

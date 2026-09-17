@@ -4,8 +4,7 @@
 // code that called them was deleted, not disabled. Auto-commit is what remains
 // nominally callable, and every one of its call sites is behind Core.shouldAutoCommit
 // (core/backlog.ts), which returns a constant false; file-system/operations.ts also
-// forces autoCommit off in every config it hands out, and core/init.ts keeps it out
-// of the configs it writes.
+// forces autoCommit off in every config it hands out.
 //
 // The class exists so Core's type surface is unchanged. Every method that would touch
 // git throws, so a path that reaches one is loud rather than silently doing nothing.

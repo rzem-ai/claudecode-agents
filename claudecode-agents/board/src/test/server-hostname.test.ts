@@ -8,7 +8,6 @@ let server: BacklogServer | null = null;
 
 type ServerInternals = {
 	server: { hostname?: string } | null;
-	openBrowser: (url: string) => Promise<void>;
 	core: {
 		getContentStore: () => Promise<unknown>;
 	};
@@ -48,45 +47,17 @@ describe("BacklogServer loopback binding", () => {
 		await safeCleanup(TEST_DIR);
 	});
 
-	it("binds, displays, and automatically opens the same 127.0.0.1 URL", async () => {
-		const port = await unusedLoopbackPort();
-		const logs: string[] = [];
-		let openedUrl: string | undefined;
-		const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
-			logs.push(args.join(" "));
-		});
-
-		try {
-			server = new BacklogServer(TEST_DIR);
-			internals(server).openBrowser = async (url) => {
-				openedUrl = url;
-			};
-			await server.start(port, true);
-
-			expect(internals(server).server?.hostname).toBe("127.0.0.1");
-			expect(logs).toContain(`🚀 Backlog.md browser interface running at http://127.0.0.1:${port}`);
-			expect(openedUrl).toBe(`http://127.0.0.1:${port}`);
-		} finally {
-			logSpy.mockRestore();
-		}
-	});
-
 	it("keeps --no-open behavior while displaying the 127.0.0.1 URL", async () => {
 		const port = await unusedLoopbackPort();
 		const logs: string[] = [];
-		let opened = false;
 		const logSpy = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
 			logs.push(args.join(" "));
 		});
 
 		try {
 			server = new BacklogServer(TEST_DIR);
-			internals(server).openBrowser = async () => {
-				opened = true;
-			};
 			await server.start(port, false);
 
-			expect(opened).toBe(false);
 			expect(logs).toContain(`🚀 Backlog.md browser interface running at http://127.0.0.1:${port}`);
 			expect(logs).toContain("💡 Open your browser and navigate to the URL above");
 			expect(logs).not.toContain("🌐 Opening browser...");

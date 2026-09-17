@@ -9,10 +9,10 @@ import { rm } from "node:fs/promises";
 import net from "node:net";
 import { join } from "node:path";
 import { $ } from "bun";
+import { DEFAULT_DIRECTORIES, DEFAULT_INIT_CONFIG } from "../constants/index.ts";
 import type { Core } from "../core/backlog.ts";
-import { initializeProject as initializeProjectShared } from "../core/init.ts";
 import { serializeTask } from "../markdown/serializer.ts";
-import type { Task } from "../types/index.ts";
+import type { BacklogConfig, Task } from "../types/index.ts";
 
 /**
  * Creates a unique test directory name to avoid conflicts in parallel execution
@@ -281,23 +281,32 @@ async function initializeTestProjectWithOptions(
 	// options.autoCommit is accepted and ignored: the git layer is not carried, so a test
 	// project is never a git repository with an initial backlog commit.
 	const { backlogDirectory, filesystemOnly = false } = options;
-	const backlogDirectorySource = backlogDirectory
-		? backlogDirectory === "backlog" || backlogDirectory === ".backlog"
-			? (backlogDirectory as "backlog" | ".backlog")
-			: "custom"
-		: undefined;
-	const configLocation = backlogDirectorySource === "custom" ? "root" : "folder";
+	const isCustomDirectory =
+		backlogDirectory !== undefined && backlogDirectory !== DEFAULT_DIRECTORIES.BACKLOG && backlogDirectory !== ".backlog";
 
-	await initializeProjectShared(core, {
+	const config: BacklogConfig = {
 		projectName,
-		backlogDirectory,
-		backlogDirectorySource,
-		configLocation,
-		integrationMode: "none",
-		filesystemOnly,
-		advancedConfig: {
-			autoCommit: false,
-		},
-	});
+		statuses: ["To Do", "In Progress", "Done"],
+		labels: [],
+		defaultStatus: "To Do",
+		dateFormat: "yyyy-mm-dd",
+		maxColumnWidth: 20,
+		filesystemOnly: filesystemOnly || DEFAULT_INIT_CONFIG.filesystemOnly,
+		// The git layer is not carried, so auto-commit is off in every config a test project writes.
+		autoCommit: false,
+		remoteOperations: filesystemOnly ? false : DEFAULT_INIT_CONFIG.remoteOperations,
+		bypassGitHooks: DEFAULT_INIT_CONFIG.bypassGitHooks,
+		checkActiveBranches: filesystemOnly ? false : DEFAULT_INIT_CONFIG.checkActiveBranches,
+		activeBranchDays: DEFAULT_INIT_CONFIG.activeBranchDays,
+		defaultPort: DEFAULT_INIT_CONFIG.defaultPort,
+		autoOpenBrowser: DEFAULT_INIT_CONFIG.autoOpenBrowser,
+		taskResolutionStrategy: "most_recent",
+		prefixes: { task: "task" },
+	};
 
+	core.filesystem.setBacklogDirectory(backlogDirectory ?? DEFAULT_DIRECTORIES.BACKLOG);
+	core.filesystem.setConfigLocation(isCustomDirectory ? "root" : "folder");
+	await core.filesystem.ensureBacklogStructure();
+	await core.filesystem.saveConfig(config);
+	await core.ensureConfigLoaded();
 }

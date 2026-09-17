@@ -6,7 +6,6 @@ import { serializeDecision, serializeDocument } from "../markdown/serializer.ts"
 import type { Decision, Document } from "../types/index.ts";
 import { decisionIdKey } from "../utils/decision-id.ts";
 import { documentIdKey, documentIdsEqual } from "../utils/document-id.ts";
-import { hasContentIdentityIssues } from "../utils/duplicate-detection.ts";
 import { AmbiguousIdError } from "../utils/entity-id.ts";
 import { createUniqueTestDir, initializeFilesystemTestProject, isWindows, safeCleanup } from "./test-utils.ts";
 
@@ -143,47 +142,6 @@ describe("ambiguous content identity", () => {
 	});
 });
 
-describe("diagnoseContentIdentity", () => {
-	it("reports nothing for a healthy project", async () => {
-		await writeDocument("doc-1 - Alpha.md", makeDocument("doc-1", "Alpha"));
-		await writeDecision("decision-1 - Alpha.md", makeDecision("decision-1", "Alpha"));
-
-		expect(await core.diagnoseContentIdentity()).toEqual({
-			documents: { duplicates: [], missingIds: [], unreadable: [] },
-			decisions: { duplicates: [], missingIds: [], unreadable: [] },
-		});
-	});
-
-	it("groups duplicate document and decision IDs by canonical ID", async () => {
-		await writeDocument("doc-1 - Alpha.md", makeDocument("doc-1", "Alpha"));
-		await writeDocument("nested/doc-01 - Beta.md", makeDocument("doc-01", "Beta"));
-		await writeDecision("decision-3 - Gamma.md", makeDecision("decision-3", "Gamma"));
-		await writeDecision("decision-003 - Delta.md", makeDecision("decision-003", "Delta"));
-
-		const report = await core.diagnoseContentIdentity();
-		expect(report.documents.duplicates).toEqual([
-			{ id: "doc-1", paths: ["backlog/docs/doc-1 - Alpha.md", "backlog/docs/nested/doc-01 - Beta.md"] },
-		]);
-		expect(report.decisions.duplicates).toEqual([
-			{
-				id: "decision-3",
-				paths: ["backlog/decisions/decision-003 - Delta.md", "backlog/decisions/decision-3 - Gamma.md"],
-			},
-		]);
-	});
-
-	it("reports documents and decisions with no id as malformed", async () => {
-		await writeDocument("no-id.md", { ...makeDocument("", "Unidentified doc"), id: "" });
-		await writeDecision("decision-blank.md", { ...makeDecision("", "Unidentified decision"), id: "" });
-
-		const report = await core.diagnoseContentIdentity();
-		expect(report.documents.missingIds).toEqual(["backlog/docs/no-id.md"]);
-		expect(report.decisions.missingIds).toEqual(["backlog/decisions/decision-blank.md"]);
-		expect(report.documents.duplicates).toEqual([]);
-		expect(report.decisions.duplicates).toEqual([]);
-	});
-});
-
 describe("unreadable content files", () => {
 	it("keeps every other document and decision resolvable", async () => {
 		await writeDocument("doc-1 - Alpha.md", makeDocument("doc-1", "Alpha"));
@@ -203,18 +161,6 @@ describe("unreadable content files", () => {
 
 		expect((await core.getDocument("doc-1"))?.title).toBe("Alpha");
 		expect((await core.filesystem.loadDecision("decision-1"))?.title).toBe("Alpha");
-	});
-
-	it("are reported as findings so identity is never called healthy on an unread file", async () => {
-		await writeRaw(core.filesystem.docsDir, "nested/doc-2 - Broken.md", malformedFrontmatter("doc-9"));
-		await writeRaw(core.filesystem.decisionsDir, "decision-2 - Broken.md", malformedFrontmatter("decision-9"));
-
-		const report = await core.diagnoseContentIdentity();
-		expect(report.documents.unreadable).toEqual(["backlog/docs/nested/doc-2 - Broken.md"]);
-		expect(report.decisions.unreadable).toEqual(["backlog/decisions/decision-2 - Broken.md"]);
-		expect(report.documents.duplicates).toEqual([]);
-		expect(report.documents.missingIds).toEqual([]);
-		expect(hasContentIdentityIssues(report)).toBe(true);
 	});
 });
 
@@ -242,10 +188,6 @@ describe("unreadable content directories", () => {
 			const unreadable: string[] = [];
 			expect(await core.filesystem.listDocuments(unreadable)).toEqual([]);
 			expect(unreadable).toEqual([""]);
-
-			const report = await core.diagnoseContentIdentity();
-			expect(report.documents.unreadable).toEqual(["backlog/docs"]);
-			expect(hasContentIdentityIssues(report)).toBe(true);
 		} finally {
 			await chmod(core.filesystem.docsDir, 0o755);
 		}
@@ -265,7 +207,6 @@ describe("unreadable content directories", () => {
 			expect(await bare.filesystem.listDocuments(unreadable)).toEqual([]);
 			expect(await bare.filesystem.listDecisions(unreadable)).toEqual([]);
 			expect(unreadable).toEqual([]);
-			expect(hasContentIdentityIssues(await bare.diagnoseContentIdentity())).toBe(false);
 		} finally {
 			bare.disposeSearchService();
 			bare.disposeContentStore();

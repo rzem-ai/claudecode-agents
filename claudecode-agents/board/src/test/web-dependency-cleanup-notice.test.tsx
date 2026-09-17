@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { DuplicateRepairPlan } from "../core/duplicate-task-repair.ts";
 import type { SearchResult, Task } from "../types/index.ts";
 import App from "../web/App.tsx";
 import { HealthCheckProvider } from "../web/contexts/HealthCheckContext.tsx";
@@ -35,17 +34,6 @@ const defaultConfig = {
 	dateFormat: "YYYY-MM-DD",
 	remoteOperations: false,
 };
-
-const emptyDuplicatePlan = (): DuplicateRepairPlan => ({
-	groups: [],
-	crossBranchFindings: [],
-	changes: [],
-	references: [],
-	referenceScanComplete: true,
-	blockedReasons: [],
-	repairable: false,
-	fingerprint: "empty",
-});
 
 let tasks: Task[] = [];
 /** Cleaned IDs the archive endpoint reports, per archived task. */
@@ -109,7 +97,6 @@ const respond = async (url: URL, init?: RequestInit): Promise<Response> => {
 		return json(tasks.map((task) => ({ type: "task", task, score: 1 })) satisfies SearchResult[]);
 	}
 	if (url.pathname === "/api/milestones" || url.pathname === "/api/milestones/archived") return json([]);
-	if (url.pathname === "/api/tasks/duplicates") return json(emptyDuplicatePlan());
 	if (url.pathname === "/api/version") return json({ version: "test" });
 	if (url.pathname.startsWith("/api/task/")) {
 		const id = decodeURIComponent(url.pathname.slice("/api/task/".length));

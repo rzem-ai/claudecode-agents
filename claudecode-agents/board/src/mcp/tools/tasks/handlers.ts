@@ -1,7 +1,6 @@
-import { basename, join } from "node:path";
+import { basename, join, relative, sep } from "node:path";
 import { DEFAULT_STATUSES } from "../../../constants/index.ts";
-import type { VacatedTaskResult } from "../../../core/backlog.ts";
-import { findLocalDuplicateTaskIds } from "../../../core/duplicate-task-repair.ts";
+import type { Core, VacatedTaskResult } from "../../../core/backlog.ts";
 import { loadTaskDetail, loadTaskListItems } from "../../../core/task-detail.ts";
 import { isCreateLockError, isTaskLockError } from "../../../file-system/operations.ts";
 import {
@@ -11,9 +10,12 @@ import {
 	type TaskListFilter,
 } from "../../../types/index.ts";
 import type { TaskEditArgs, TaskEditRequest } from "../../../types/task-edit-args.ts";
-import { formatAcceptanceCriteriaSummarySuffix } from "../../../ui/acceptance-criteria-progress.ts";
 import { formatDependencyCleanupMessage } from "../../../utils/dependency-graph.ts";
-import { formatDuplicateTaskIdWarning } from "../../../utils/duplicate-detection.ts";
+import {
+	detectDuplicateTaskIds,
+	type DuplicateGroup,
+	formatDuplicateTaskIdWarning,
+} from "../../../utils/duplicate-detection.ts";
 import {
 	createMilestoneFilterValueResolver,
 	type MilestoneFilterValueResolver,
@@ -28,6 +30,33 @@ import { BacklogToolError } from "../../errors/mcp-errors.ts";
 import type { McpServer } from "../../server.ts";
 import type { CallToolResult } from "../../types.ts";
 import { formatTaskCallResult } from "../../utils/task-response.ts";
+
+/** Format a " (ac: checked/total)" suffix for MCP task list lines; empty without criteria. */
+function formatAcceptanceCriteriaSummarySuffix(task: Task): string {
+	const criteria = task.acceptanceCriteriaItems ?? [];
+	if (criteria.length === 0) return "";
+	const checked = criteria.filter((criterion) => criterion.checked).length;
+	return ` (ac: ${checked}/${criteria.length})`;
+}
+
+/** Duplicate task IDs across the working copy's active and completed tasks. */
+async function findLocalDuplicateTaskIds(core: Core): Promise<DuplicateGroup[]> {
+	const rootDir = core.filesystem.rootDir;
+	// The warning names files, so paths are reported relative to the project root.
+	const withLocation = (task: Task, source: "local" | "completed"): Task => ({
+		...task,
+		filePath: task.filePath ? relative(rootDir, task.filePath).split(sep).join("/") : undefined,
+		source,
+	});
+	const [activeTasks, completedTasks] = await Promise.all([
+		core.filesystem.listTasks(),
+		core.filesystem.listCompletedTasks(),
+	]);
+	return detectDuplicateTaskIds([
+		...activeTasks.map((task: Task) => withLocation(task, "local")),
+		...completedTasks.map((task: Task) => withLocation(task, "completed")),
+	]);
+}
 
 export type TaskCreateArgs = {
 	title: string;

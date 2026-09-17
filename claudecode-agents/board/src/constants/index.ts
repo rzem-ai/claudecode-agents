@@ -77,4 +77,3 @@ export const DEFAULT_INIT_CONFIG = {
 	autoOpenBrowser: true,
 } as const;
 
-export * from "../guidelines/index.ts";

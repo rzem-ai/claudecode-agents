@@ -1,8 +1,5 @@
 import type { TaskDetail } from "../core/task-detail.ts";
 import type { Task } from "../types/index.ts";
-import type { ChecklistItem } from "../ui/checklist.ts";
-import { transformCodePathsPlain } from "../ui/code-path.ts";
-import { formatStatusWithIcon } from "../ui/status-icon.ts";
 import { formatPriorityLabel } from "../utils/priority-config.ts";
 import { sortByTaskId } from "../utils/task-sorting.ts";
 import { formatUtcDateForDisplay, type UtcDateDisplayOptions } from "../utils/utc-date-display.ts";
@@ -11,6 +8,38 @@ import { formatDependencyGraphLines } from "./dependency-graph-text.ts";
 export type TaskPlainTextOptions = {
 	filePathOverride?: string;
 };
+
+export interface ChecklistItem {
+	text: string;
+	checked: boolean;
+}
+
+// Matches a backticked span; only spans that look like a path keep their backticks in plain output.
+const BACKTICKED_PATH = /`([^`]+)`/g;
+const FILE_EXTENSION = /\.[a-zA-Z0-9]+$/;
+const PATH_SEPARATOR = /[/\\]/;
+
+function isCodePath(content: string): boolean {
+	return FILE_EXTENSION.test(content) || PATH_SEPARATOR.test(content);
+}
+
+function transformCodePathsPlain(text: string): string {
+	if (!text) return "";
+	return text.replace(BACKTICKED_PATH, (match, path) => (isCodePath(path) ? `\`${path}\`` : match));
+}
+
+const STATUS_ICONS: Record<string, string> = {
+	done: "✔",
+	"in progress": "◒",
+	blocked: "●",
+	"to do": "○",
+	review: "◆",
+	testing: "▣",
+};
+
+function formatStatusWithIcon(status: string): string {
+	return `${STATUS_ICONS[status.trim().toLowerCase()] ?? "○"} ${status}`;
+}
 
 const plainDateDisplayOptions: UtcDateDisplayOptions = { appendUtcLabel: true };
 

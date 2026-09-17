@@ -22,14 +22,19 @@ this package carries; they go away with the modules later tasks remove.
 Removed, in the order the plan removed them:
 
 - root discovery by walking up and by git (`src/utils/find-backlog-root.ts`, `src/utils/runtime-cwd.ts`)
-- the commander CLI (`src/cli.ts`, `src/commands/`, `src/completions/`)
+- upstream's commander CLI and its command tree (`src/cli.ts`, `src/commands/`)
 - the git layer (`src/git/`, `src/core/cross-branch-tasks.ts`, auto-commit and remote operations)
-- the terminal UI (`src/ui/`, `src/board.ts` terminal format, `neo-neo-bblessed`)
-- project initialisation and instruction injection (`src/core/init.ts`, `src/agent-instructions.ts`, `src/guidelines/`, `src/readme.ts`)
-- duplicate-ID repair and the prefix and config migrations
-- editor, clipboard, browser-launch and MCP client setup helpers, the config watcher
-- the MCP workflow tool and resources and the init-required resource
+- the terminal UI (`src/ui/`, `src/types/neo-neo-bblessed.d.ts`, `Core.editTaskInTui`, `Core.openEditor`, `src/board.ts`'s terminal format and layout types, `neo-neo-bblessed`, `@clack/core`, `@clack/prompts`)
+- shell completions (`src/completions/`)
+- project initialisation and instruction injection (`src/core/init.ts`, `src/agent-instructions.ts`, `src/guidelines/`, `src/readme.ts`, the server's `/api/init` endpoint)
+- duplicate-ID repair (`src/core/duplicate-task-repair.ts`, `Core.previewDuplicateTaskIdRepair`, `Core.repairDuplicateTaskIds`, the server's `/api/tasks/duplicates` endpoint, `DuplicateIdRepairModal`, `DuplicateIdWarning`)
+- the terminal-status cleanup endpoints (`/api/tasks/cleanup`, `/api/tasks/cleanup/execute`)
+- the prefix and config migrations (`src/core/prefix-migration.ts`, `src/core/config-migration.ts`, `Core.ensureConfigMigrated` and the legacy-milestone helpers under it)
+- the identity diagnostics the removed `doctor` command reached (`Core.diagnoseDraftIdentity`, `Core.diagnoseContentIdentity`)
+- the editor, clipboard, browser-launch, browser loading state, MCP client setup, agent selection and config watcher helper modules (`src/utils/{editor,clipboard,browser-launch,browser-loading-state,mcp-client-setup,config-watcher,agent-selection}.ts`); the two whose behaviour the board still reaches were moved into their only caller (the config watcher into `src/core/content-store.ts`, the loading-state parser into `src/web/App.tsx`)
+- the MCP workflow tools and resources, the init-required resource, and roots discovery with its fallback mode (`src/mcp/tools/workflow/`, `src/mcp/resources/`, `src/mcp/workflow-guides.ts`, `McpServer.enableRootsDiscovery` and the `pinned` option)
+- the repository tooling upstream's package.json carried (`husky`, `lint-staged`, `install`)
 
 ## Adjusted at import
 
-- `src/guidelines/project-manager-backlog.md` was a symlink into upstream's `.claude/agents/`; it is a plain copy here.
+- `src/guidelines/project-manager-backlog.md` was a symlink into upstream's `.claude/agents/`; it was a plain copy here until `src/guidelines/` was removed with the instruction machinery.

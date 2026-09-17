@@ -29,7 +29,6 @@ import {
 import { formatDependencyCleanupMessage } from '../utils/dependency-graph';
 import { ApiError, apiClient, readMovedFailureState } from './lib/api';
 import type { TaskDetail } from '../core/task-detail';
-import type { DuplicateRepairPlan } from '../core/duplicate-task-repair';
 import { isValidTaskId } from '../utils/task-id';
 import { useHealthCheckContext } from './contexts/HealthCheckContext';
 import { getWebVersion } from './utils/version';
@@ -39,7 +38,6 @@ import { getTaskTypeValues } from '../utils/task-type-config';
 import { createUrlPath } from './utils/urlHelpers';
 import { filterKanbanTasks } from './utils/kanban-tasks';
 import { reconcileById } from './utils/reconcile';
-import { parseBrowserLoadingState } from '../utils/browser-loading-state';
 
 type TaskRouteNavigationState = {
   taskModalFrom?: string;
@@ -269,7 +267,6 @@ function AppContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<Error | null>(null);
-  const [duplicateRepairPlan, setDuplicateRepairPlan] = useState<DuplicateRepairPlan | null>(null);
   
   const { isOnline } = useHealthCheckContext();
   const previousOnlineRef = useRef<boolean | null>(null);
@@ -283,7 +280,6 @@ function AppContent() {
   // counter, so it must adopt at least this scope or the wider data is lost.
   const pendingScopeRankRef = useRef(0);
   const loadErrorRef = useRef<Error | null>(null);
-  const duplicateRepairPlanRef = useRef<DuplicateRepairPlan | null>(null);
   const protocolOnlyLoadingRef = useRef(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -392,11 +388,6 @@ function AppContent() {
     setLoadError(error);
   }, []);
 
-  const applyDuplicateRepairPlan = useCallback((plan: DuplicateRepairPlan | null) => {
-    duplicateRepairPlanRef.current = plan;
-    setDuplicateRepairPlan(plan);
-  }, []);
-
   const loadAllData = useCallback(async () => {
     const requestId = loadAllDataRequestRef.current + 1;
     loadAllDataRequestRef.current = requestId;
@@ -448,11 +439,6 @@ function AppContent() {
           (milestone) => !archivedKeys.has(milestoneKey(milestone)),
         ),
       );
-      void apiClient.fetchDuplicateTaskRepairPlan().then((duplicatePlan) => {
-        if (loadAllDataRequestRef.current === requestId) applyDuplicateRepairPlan(duplicatePlan);
-      }).catch(() => {
-        if (loadAllDataRequestRef.current === requestId) applyDuplicateRepairPlan(null);
-      });
     } catch (error) {
       if (loadAllDataRequestRef.current === requestId) {
         console.error('Failed to load data:', error);
@@ -465,7 +451,7 @@ function AppContent() {
         setLoadingMessage(null);
       }
     }
-  }, [applySearchResults, applyMilestoneIds, applyLoadError, applyDuplicateRepairPlan]);
+  }, [applySearchResults, applyMilestoneIds, applyLoadError]);
 
   React.useEffect(() => {
     // Only load data when initialized
@@ -667,31 +653,12 @@ function AppContent() {
       }
       const archivedKeys = new Set(collectArchivedMilestoneKeys(archivedMilestonesData, milestonesData));
       const milestoneAliases = buildMilestoneAliasMap(milestonesData, archivedMilestonesData);
-      const idSignature = (list: Task[]) =>
-        list
-          .map((task) => task.id)
-          .sort()
-          .join("\n");
-      const previousIdSignature = idSignature(tasksRef.current);
       const { tasks: tasksList } = applySearchResults(searchResults, archivedKeys, milestoneAliases);
       applyMilestoneIds(
         collectMilestoneIds(tasksList, milestonesData, archivedMilestonesData).filter(
           (milestone) => !archivedKeys.has(milestoneKey(milestone)),
         ),
       );
-      // In the healthy steady state (an empty plan on record), duplicate IDs can
-      // only appear when the set of task IDs changes, so edits and reorders skip
-      // the plan's filesystem rescan. While duplicates exist their plan
-      // fingerprint also covers content and references, and a still-null plan
-      // means the initial read has not landed (or was superseded), so both keep
-      // refreshing until the corpus is clean again.
-      const plan = duplicateRepairPlanRef.current;
-      const planUnsettled = plan === null || plan.groups.length > 0 || plan.crossBranchFindings.length > 0;
-      if (planUnsettled || idSignature(tasksList) !== previousIdSignature) {
-        void apiClient.fetchDuplicateTaskRepairPlan().then((duplicatePlan) => {
-          if (loadAllDataRequestRef.current === requestId) applyDuplicateRepairPlan(duplicatePlan);
-        }).catch(() => {});
-      }
     } catch {
       if (loadAllDataRequestRef.current !== requestId) {
         return;
@@ -702,7 +669,7 @@ function AppContent() {
         pendingDataRequestRef.current = null;
       }
     }
-  }, [applySearchResults, applyMilestoneIds, applyDuplicateRepairPlan, loadAllData]);
+  }, [applySearchResults, applyMilestoneIds, loadAllData]);
 
   const refreshData = useCallback(async () => {
     await refreshTasksData(false);
@@ -991,7 +958,6 @@ function AppContent() {
                 loadingMessage={loadingMessage}
                 error={loadError}
                 onRefreshData={refreshData}
-                duplicateRepairPlan={duplicateRepairPlan}
               />
             }
           >
@@ -1114,6 +1080,26 @@ function AppContent() {
       </TaskIdIndexProvider>
     </ThemeProvider>
   );
+}
+
+type BrowserLoadingState =
+  | { type: 'loading'; message: string | null }
+  | { type: 'loaded' }
+  | { type: 'error'; message: string };
+
+function parseBrowserLoadingState(value: unknown): BrowserLoadingState | null {
+  if (typeof value !== 'string' || !value.startsWith('{')) return null;
+  try {
+    const state = JSON.parse(value) as Record<string, unknown>;
+    if (state.type === 'loaded') return { type: 'loaded' };
+    if (state.type === 'loading' && (typeof state.message === 'string' || state.message === null)) {
+      return { type: 'loading', message: state.message };
+    }
+    if (state.type === 'error' && typeof state.message === 'string') {
+      return { type: 'error', message: state.message };
+    }
+  } catch {}
+  return null;
 }
 
 function App() {

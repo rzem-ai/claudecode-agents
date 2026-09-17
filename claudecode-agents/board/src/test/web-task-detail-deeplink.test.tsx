@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { JSDOM } from "jsdom";
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { DuplicateRepairPlan } from "../core/duplicate-task-repair.ts";
 import type { SearchResult, Task } from "../types/index.ts";
 import { buildDependencyGraph } from "../utils/dependency-graph.ts";
 import { isValidTaskId, resolveTaskById } from "../utils/task-id.ts";
@@ -84,16 +83,6 @@ const originalElement = globalThis.Element;
 const originalHTMLElement = globalThis.HTMLElement;
 const originalNode = globalThis.Node;
 
-const emptyDuplicatePlan = (): DuplicateRepairPlan => ({
-	groups: [],
-	crossBranchFindings: [],
-	changes: [],
-	references: [],
-	referenceScanComplete: true,
-	blockedReasons: [],
-	repairable: false,
-	fingerprint: "empty",
-});
 let controlledTimerCleanup: (() => void) | null = null;
 const historyWaitCleanups = new Set<() => void>();
 
@@ -390,9 +379,6 @@ const resolveMockResponse = async (url: URL): Promise<Response> => {
 		if (url.pathname === "/api/milestones" || url.pathname === "/api/milestones/archived") {
 			return json([]);
 		}
-		if (url.pathname === "/api/tasks/duplicates") {
-			return json(emptyDuplicatePlan());
-		}
 		if (url.pathname === "/api/version") {
 			return json({ version: "test" });
 		}
@@ -472,7 +458,6 @@ const renderApp = async (
 		advanceHealthSocket?: boolean;
 		afterInitialStatus?: (container: HTMLElement) => void | Promise<void>;
 		beforeInitialStatus?: (container: HTMLElement) => void | Promise<void>;
-		manualDuplicatePlan?: boolean;
 		operationRef?: { current?: FetchOperation };
 	} = {},
 ): Promise<HTMLElement> => {
@@ -488,9 +473,6 @@ const renderApp = async (
 	const operation = new FetchOperation(`render ${path}`, [
 		expectFetch("initial status", "/api/status"),
 		expectFetch("initial search", "/api/search"),
-		...(options.manualDuplicatePlan
-			? [expectFetch("initial duplicate plan", "/api/tasks/duplicates", { manual: true })]
-			: []),
 		...(routeId && isValidTaskId(routeId)
 			? [expectFetch("routed task", `/api/task/${encodeURIComponent(routeId)}`)]
 			: []),
@@ -863,8 +845,6 @@ describe("task detail routes", () => {
 		);
 		reorder.finish();
 
-		// The reconciliation edits an existing task, so the ID set is unchanged
-		// and the duplicate repair plan is not refetched.
 		const reconciliation = new FetchOperation("newer WebSocket reconciliation", [
 			expectFetch("newer search", "/api/search", { manual: true }),
 		]);
@@ -1495,54 +1475,6 @@ describe("task detail routes", () => {
 			() => window.location.pathname === "/tasks" && container.querySelector("[role='dialog']") === null,
 			"race winner close",
 		);
-	});
-
-	it("ignores a stale duplicate repair plan when a newer data load wins", async () => {
-		const stalePlan: DuplicateRepairPlan = {
-			...emptyDuplicatePlan(),
-			groups: [
-				{
-					id: "BACK-101",
-					tasks: [
-						{ ...tasks[0], filePath: "backlog/tasks/back-101 - Alpha.md" } as Task,
-						{ ...tasks[0], title: "Duplicate", filePath: "backlog/tasks/back-0101 - Duplicate.md" } as Task,
-					],
-				},
-			],
-			repairable: true,
-			fingerprint: "stale-plan",
-		};
-		const initialLoadRef: { current?: FetchOperation } = {};
-		const container = await renderApp("/tasks", {
-			advanceHealthSocket: true,
-			manualDuplicatePlan: true,
-			operationRef: initialLoadRef,
-		});
-		const dataSocket = assertHealthSocketDoesNotShadowDataSocket();
-		// The initial plan read has not landed yet, so the incremental refresh
-		// fetches a replacement plan; bumping the request counter is what
-		// invalidates the stale initial response below.
-		const newerLoad = new FetchOperation("newer data load", [
-			expectFetch("newer search", "/api/search"),
-			expectFetch("newer duplicate plan", "/api/tasks/duplicates"),
-		]);
-		await act(async () => {
-			dataSocket.deliver("tasks-updated");
-			await Promise.resolve();
-		});
-		await act(async () => {
-			await newerLoad.settle("newer search", "newer duplicate plan");
-		});
-		newerLoad.finish();
-		assertState(() => container.textContent?.includes(tasks[0]?.title ?? "") ?? false, "newer data load");
-		const initialLoad = initialLoadRef.current;
-		if (!initialLoad) throw new Error("Initial data-load operation was not captured");
-		await act(async () => {
-			initialLoad.respond("initial duplicate plan", json(stalePlan));
-			await initialLoad.settle("initial duplicate plan");
-		});
-
-		expect(container.textContent).not.toContain("Duplicate task IDs:");
 	});
 
 	it("opens a padded custom-prefix subtask directly and closes to the board", async () => {

@@ -1,4 +1,3 @@
-import type { DuplicateRepairPlan, DuplicateRepairResult } from "../../core/duplicate-task-repair.ts";
 import type { TaskStatistics } from "../../core/statistics.ts";
 import type { TaskDetail } from "../../core/task-detail.ts";
 import type {
@@ -408,17 +407,6 @@ export class ApiClient {
 
 	async updateTaskStatus(id: string, status: TaskStatus): Promise<Task> {
 		return this.updateTask(id, { status });
-	}
-
-	async fetchDuplicateTaskRepairPlan(): Promise<DuplicateRepairPlan> {
-		return await this.fetchJson<DuplicateRepairPlan>(`${API_BASE}/tasks/duplicates`);
-	}
-
-	async repairDuplicateTaskIds(fingerprint: string): Promise<DuplicateRepairResult> {
-		return await this.fetchJson<DuplicateRepairResult>(`${API_BASE}/tasks/duplicates`, {
-			method: "POST",
-			body: JSON.stringify({ fingerprint }),
-		});
 	}
 
 	async fetchStatuses(): Promise<string[]> {

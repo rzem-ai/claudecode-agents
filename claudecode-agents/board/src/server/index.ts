@@ -4,7 +4,6 @@ import type { Server, ServerWebSocket } from "bun";
 import { DEFAULT_STATUSES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { ContentStore } from "../core/content-store.ts";
-import { initializeProject } from "../core/init.ts";
 import type { SearchService } from "../core/search-service.ts";
 import { getTaskStatistics } from "../core/statistics.ts";
 import { loadTaskDetail } from "../core/task-detail.ts";
@@ -19,12 +18,10 @@ import {
 	type Task,
 	type TaskUpdateInput,
 } from "../types/index.ts";
-import { launchBrowser } from "../utils/browser-launch.ts";
-import type { BrowserLoadingState } from "../utils/browser-loading-state.ts";
 import { normalizeDueDate } from "../utils/due-date.ts";
 import { isAmbiguousIdError } from "../utils/entity-id.ts";
 import { resolveMilestoneInputForStorage } from "../utils/milestone-storage.ts";
-import { DRAFT_PREFIX, extractAnyPrefix, getTaskPrefixError } from "../utils/prefix-config.ts";
+import { DRAFT_PREFIX, extractAnyPrefix } from "../utils/prefix-config.ts";
 import { formatValidPriorityValues, resolvePriorityValue } from "../utils/priority-config.ts";
 import {
 	formatValidProjectValues,
@@ -36,6 +33,11 @@ import { formatValidStatuses, getCanonicalStatuses, getValidStatuses } from "../
 import { isValidTaskId } from "../utils/task-id.ts";
 import { isAmbiguousTaskIdError, LOCAL_TASK_LOOKUP_HINT } from "../utils/task-path.ts";
 import { getVersion } from "../utils/version.ts";
+
+type BrowserLoadingState =
+	| { type: "loading"; message: string | null }
+	| { type: "loaded" }
+	| { type: "error"; message: string };
 
 // Regex pattern to match any prefix (letters followed by dash)
 const PREFIX_PATTERN = /^[a-zA-Z]+-/i;
@@ -175,18 +177,6 @@ function ensurePrefix(id: string): string {
 		return id;
 	}
 	return `${DEFAULT_PREFIX}${id}`;
-}
-
-function parseOptionalBoolean(value: unknown): boolean | undefined {
-	if (typeof value === "boolean") {
-		return value;
-	}
-	if (typeof value === "string") {
-		const normalized = value.trim().toLowerCase();
-		if (normalized === "true") return true;
-		if (normalized === "false") return false;
-	}
-	return undefined;
 }
 
 import indexHtml from "../web/index.html";
@@ -381,7 +371,7 @@ export class BacklogServer {
 		}
 	}
 
-	async start(port?: number, openBrowser = true): Promise<void> {
+	async start(port?: number, _openBrowser = true): Promise<void> {
 		// Prevent duplicate starts (e.g., accidental re-entry)
 		if (this.server) {
 			console.log("Server already running");
@@ -394,10 +384,6 @@ export class BacklogServer {
 		// Use config default port if no port specified
 		const finalPort = port ?? config?.defaultPort ?? 6420;
 		this.projectName = config?.projectName || "Untitled Project";
-
-		// Check if browser should open (config setting or CLI override)
-		// Default to true if autoOpenBrowser is not explicitly set to false
-		const shouldOpenBrowser = openBrowser && (config?.autoOpenBrowser ?? true);
 
 		try {
 			const serveOptions = {
@@ -497,16 +483,6 @@ export class BacklogServer {
 					"/api/tasks/move": {
 						POST: async (req: Request) => await this.handleMoveTasks(req),
 					},
-					"/api/tasks/cleanup": {
-						GET: async (req: Request) => await this.handleCleanupPreview(req),
-					},
-					"/api/tasks/duplicates": {
-						GET: async () => await this.handleGetDuplicateTasks(),
-						POST: async (req: Request) => await this.handleRepairDuplicateTasks(req),
-					},
-					"/api/tasks/cleanup/execute": {
-						POST: async (req: Request) => await this.handleCleanupExecute(req),
-					},
 					"/api/version": {
 						GET: async () => await this.handleGetVersion(),
 					},
@@ -515,9 +491,6 @@ export class BacklogServer {
 					},
 					"/api/status": {
 						GET: async () => await this.handleGetStatus(),
-					},
-					"/api/init": {
-						POST: async (req: Request) => await this.handleInit(req),
 					},
 					"/api/search": {
 						GET: async (req: Request) => await this.handleSearch(req),
@@ -573,12 +546,7 @@ export class BacklogServer {
 			const stopKey = process.platform === "darwin" ? "Cmd+C" : "Ctrl+C";
 			console.log(`⏹️  Press ${stopKey} to stop the server`);
 
-			if (shouldOpenBrowser) {
-				console.log("🌐 Opening browser...");
-				await this.openBrowser(url);
-			} else {
-				console.log("💡 Open your browser and navigate to the URL above");
-			}
+			console.log("💡 Open your browser and navigate to the URL above");
 		} catch (error) {
 			// Handle port already in use error
 			const errorCode = (error as { code?: string })?.code;
@@ -646,15 +614,6 @@ export class BacklogServer {
 		}
 
 		this._stopping = false;
-	}
-
-	private async openBrowser(url: string): Promise<void> {
-		try {
-			await launchBrowser(url);
-		} catch (error) {
-			console.warn("⚠️  Failed to open browser automatically:", error);
-			console.log("💡 Please open your browser manually and navigate to the URL above");
-		}
 	}
 
 	private async handleAssetRequest(req: Request): Promise<Response> {
@@ -1872,122 +1831,6 @@ export class BacklogServer {
 		}
 	}
 
-	private async handleGetDuplicateTasks(): Promise<Response> {
-		try {
-			await this.ensureServicesReady();
-			return Response.json(await this.core.previewDuplicateTaskIdRepair());
-		} catch (error) {
-			return Response.json({ error: String(error) }, { status: 500 });
-		}
-	}
-
-	private async handleRepairDuplicateTasks(req: Request): Promise<Response> {
-		try {
-			const body = (await req.json()) as { fingerprint?: unknown };
-			const fingerprint = typeof body.fingerprint === "string" ? body.fingerprint.trim() : "";
-			if (!fingerprint) {
-				return Response.json({ error: "A repair preview fingerprint is required." }, { status: 400 });
-			}
-			const result = await this.core.repairDuplicateTaskIds(fingerprint);
-			return Response.json(result);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			const status = message.includes("changed after the preview") ? 409 : 400;
-			return Response.json({ error: message }, { status });
-		}
-	}
-
-	private async handleCleanupPreview(req: Request): Promise<Response> {
-		try {
-			const url = new URL(req.url);
-			const ageParam = url.searchParams.get("age");
-
-			if (!ageParam) {
-				return Response.json({ error: "Missing age parameter" }, { status: 400 });
-			}
-
-			const age = Number.parseInt(ageParam, 10);
-			if (Number.isNaN(age) || age < 0) {
-				return Response.json({ error: "Invalid age parameter" }, { status: 400 });
-			}
-
-			const tasksToCleanup = await this.core.getTerminalStatusTasksByAge(age);
-
-			// Return preview of tasks to be cleaned up
-			const preview = tasksToCleanup.map((task) => ({
-				id: task.id,
-				title: task.title,
-				updatedDate: task.updatedDate,
-				createdDate: task.createdDate,
-			}));
-
-			return Response.json({
-				count: preview.length,
-				tasks: preview,
-			});
-		} catch (error) {
-			console.error("Error getting cleanup preview:", error);
-			return Response.json({ error: "Failed to get cleanup preview" }, { status: 500 });
-		}
-	}
-
-	private async handleCleanupExecute(req: Request): Promise<Response> {
-		try {
-			const { age } = await req.json();
-
-			if (age === undefined || age === null) {
-				return Response.json({ error: "Missing age parameter" }, { status: 400 });
-			}
-
-			const ageInDays = Number.parseInt(age, 10);
-			if (Number.isNaN(ageInDays) || ageInDays < 0) {
-				return Response.json({ error: "Invalid age parameter" }, { status: 400 });
-			}
-
-			const tasksToCleanup = await this.core.getTerminalStatusTasksByAge(ageInDays);
-
-			if (tasksToCleanup.length === 0) {
-				return Response.json({
-					success: true,
-					movedCount: 0,
-					message: "No tasks to clean up",
-				});
-			}
-
-			// Move tasks to completed folder
-			let successCount = 0;
-			const failedTasks: string[] = [];
-
-			for (const task of tasksToCleanup) {
-				try {
-					const success = await this.core.completeTask(task.id);
-					if (success) {
-						successCount++;
-					} else {
-						failedTasks.push(task.id);
-					}
-				} catch (error) {
-					console.error(`Failed to complete task ${task.id}:`, error);
-					failedTasks.push(task.id);
-				}
-			}
-
-			// Notify listeners to refresh
-			this.broadcastDataUpdated();
-
-			return Response.json({
-				success: true,
-				movedCount: successCount,
-				totalCount: tasksToCleanup.length,
-				failedTasks: failedTasks.length > 0 ? failedTasks : undefined,
-				message: `Moved ${successCount} of ${tasksToCleanup.length} tasks to completed folder`,
-			});
-		} catch (error) {
-			console.error("Error executing cleanup:", error);
-			return Response.json({ error: "Failed to execute cleanup" }, { status: 500 });
-		}
-	}
-
 	private async handleGetStatistics(): Promise<Response> {
 		try {
 			const servicesWereReady = this.servicesInitialized;
@@ -2044,75 +1887,4 @@ export class BacklogServer {
 		}
 	}
 
-	private async handleInit(req: Request): Promise<Response> {
-		try {
-			const body = await req.json();
-			const projectName = typeof body.projectName === "string" ? body.projectName.trim() : "";
-			const backlogDirectory = typeof body.backlogDirectory === "string" ? body.backlogDirectory.trim() : undefined;
-			const backlogDirectorySource =
-				body.backlogDirectorySource === "backlog" ||
-				body.backlogDirectorySource === ".backlog" ||
-				body.backlogDirectorySource === "custom"
-					? body.backlogDirectorySource
-					: undefined;
-			const configLocation =
-				body.configLocation === "folder" || body.configLocation === "root" ? body.configLocation : undefined;
-			const integrationMode = body.integrationMode as "mcp" | "cli" | "none" | undefined;
-			const mcpClients = Array.isArray(body.mcpClients) ? body.mcpClients : [];
-			const agentInstructions = Array.isArray(body.agentInstructions) ? body.agentInstructions : [];
-			const installClaudeAgentFlag = parseOptionalBoolean(body.installClaudeAgent) ?? false;
-			const filesystemOnly = parseOptionalBoolean(body.filesystemOnly) ?? false;
-			const advancedConfig = body.advancedConfig || {};
-
-			// Input validation (browser layer responsibility)
-			if (!projectName) {
-				return Response.json({ error: "Project name is required" }, { status: 400 });
-			}
-			const taskPrefixError = getTaskPrefixError(
-				typeof advancedConfig.taskPrefix === "string" ? advancedConfig.taskPrefix : "",
-			);
-			if (taskPrefixError) {
-				return Response.json({ error: taskPrefixError }, { status: 400 });
-			}
-
-			// Check if already initialized (for browser, we don't allow re-init)
-			const existingConfig = await this.core.filesystem.loadConfig();
-			if (existingConfig) {
-				return Response.json({ error: "Project is already initialized" }, { status: 400 });
-			}
-
-			// Call shared core init function
-			const result = await initializeProject(this.core, {
-				projectName,
-				backlogDirectory,
-				backlogDirectorySource,
-				configLocation,
-				integrationMode: integrationMode || "none",
-				mcpClients,
-				agentInstructions,
-				installClaudeAgent: installClaudeAgentFlag,
-				filesystemOnly,
-				advancedConfig,
-				existingConfig: null,
-			});
-
-			// Update server's project name
-			this.projectName = result.projectName;
-
-			// Ensure config watcher is set up now that config file exists
-			if (this.contentStore) {
-				await this.contentStore.ensureConfigWatcher();
-			}
-
-			return Response.json({
-				success: result.success,
-				projectName: result.projectName,
-				mcpResults: result.mcpResults,
-			});
-		} catch (error) {
-			console.error("Error initializing project:", error);
-			const message = error instanceof Error ? error.message : "Failed to initialize project";
-			return Response.json({ error: message }, { status: 500 });
-		}
-	}
 }

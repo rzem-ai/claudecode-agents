@@ -2,8 +2,6 @@ import { Outlet } from 'react-router-dom';
 import SideNavigation from './SideNavigation';
 import Navigation from './Navigation';
 import { HealthIndicator, HealthSuccessToast } from './HealthIndicator';
-import { DuplicateIdWarning } from './DuplicateIdWarning';
-import type { DuplicateRepairPlan } from '../../core/duplicate-task-repair';
 import { type Task, type Document, type Decision } from '../../types';
 
 interface LayoutProps {
@@ -17,7 +15,6 @@ interface LayoutProps {
 	loadingMessage?: string | null;
 	error?: Error | null;
 	onRefreshData: () => Promise<void>;
-	duplicateRepairPlan?: DuplicateRepairPlan | null;
 }
 
 export default function Layout({
@@ -31,7 +28,6 @@ export default function Layout({
 	loadingMessage,
 	error,
 	onRefreshData,
-	duplicateRepairPlan = null,
 }: LayoutProps) {
 	return (
 		<div className="h-screen bg-gray-50 dark:bg-gray-900 flex overflow-hidden transition-colors duration-200">
@@ -47,7 +43,6 @@ export default function Layout({
 			/>
 			<div className="flex-1 flex flex-col min-h-0 min-w-0">
 				<Navigation projectName={projectName} loadingMessage={loadingMessage} />
-				<DuplicateIdWarning plan={duplicateRepairPlan} onRepaired={onRefreshData} />
 				<main className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden">
 					<Outlet context={{ tasks, docs, decisions, isLoading, onRefreshData }} />
 				</main>

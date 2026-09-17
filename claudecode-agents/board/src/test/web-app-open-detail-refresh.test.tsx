@@ -132,7 +132,6 @@ function stubApi(handlers: {
 		fetchMilestones: apiClient.fetchMilestones.bind(apiClient),
 		fetchArchivedMilestones: apiClient.fetchArchivedMilestones.bind(apiClient),
 		search: apiClient.search.bind(apiClient),
-		fetchDuplicateTaskRepairPlan: apiClient.fetchDuplicateTaskRepairPlan.bind(apiClient),
 		fetchTask: apiClient.fetchTask.bind(apiClient),
 	};
 	restore.push(() => Object.assign(apiClient, originals));
@@ -143,7 +142,6 @@ function stubApi(handlers: {
 	apiClient.fetchMilestones = async () => [];
 	apiClient.fetchArchivedMilestones = async () => [];
 	apiClient.search = async () => handlers.search();
-	apiClient.fetchDuplicateTaskRepairPlan = async () => ({ groups: [] }) as never;
 	apiClient.fetchTask = async (id: string) => handlers.fetchTask(id);
 }
 

@@ -6,8 +6,6 @@
   "module": "src/cli.ts",
   "devDependencies": {
     "@biomejs/biome": "2.5.3",
-    "@clack/core": "1.4.3",
-    "@clack/prompts": "1.7.0",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@types/bun": "1.3.14",
     "@types/jsdom": "28.0.3",
@@ -20,12 +18,8 @@
     "commander": "15.0.0",
     "fuse.js": "7.4.2",
     "gray-matter": "4.0.3",
-    "husky": "9.1.7",
-    "install": "0.13.0",
     "jsdom": "29.1.1",
-    "lint-staged": "17.0.8",
     "mermaid": "11.16.1",
-    "neo-neo-bblessed": "1.0.10",
     "picocolors": "1.1.1",
     "proper-lockfile": "4.1.2",
     "react": "19.2.7",
@@ -40,17 +34,6 @@
     "check:types": "bunx tsc --noEmit",
     "check": "biome check .",
     "build": "./build.sh"
-  },
-  "lint-staged": {
-    "package.json": [
-      "biome check --write --files-ignore-unknown=true"
-    ],
-    "*.json": [
-      "biome check --write --files-ignore-unknown=true"
-    ],
-    "src/**/*.{ts,js}": [
-      "biome check --write --files-ignore-unknown=true"
-    ]
   },
   "author": "Alex Gavrilescu (https://github.com/MrLesk)",
   "license": "MIT",

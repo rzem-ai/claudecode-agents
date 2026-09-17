@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { JSDOM } from "jsdom";
 import { StrictMode, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { DuplicateRepairPlan } from "../core/duplicate-task-repair.ts";
 import type { Milestone, SearchResult, Task } from "../types/index.ts";
 import App from "../web/App.tsx";
 import { HealthCheckProvider } from "../web/contexts/HealthCheckContext.tsx";
@@ -28,20 +27,8 @@ const defaultConfig = {
 	remoteOperations: false,
 };
 
-const emptyDuplicatePlan = (): DuplicateRepairPlan => ({
-	groups: [],
-	crossBranchFindings: [],
-	changes: [],
-	references: [],
-	referenceScanComplete: true,
-	blockedReasons: [],
-	repairable: false,
-	fingerprint: "empty",
-});
-
 let tasks: Task[] = [];
 let milestones: Milestone[] = [];
-let duplicatePlan: DuplicateRepairPlan = emptyDuplicatePlan();
 let failNextSearch = false;
 let configHold: Promise<void> | null = null;
 let requestLog: string[] = [];
@@ -116,7 +103,6 @@ const respond = async (url: URL): Promise<Response> => {
 	}
 	if (url.pathname === "/api/milestones") return json(milestones);
 	if (url.pathname === "/api/milestones/archived") return json([]);
-	if (url.pathname === "/api/tasks/duplicates") return json(duplicatePlan);
 	if (url.pathname === "/api/version") return json({ version: "test" });
 	return json([]);
 };
@@ -226,7 +212,6 @@ afterEach(() => {
 	activeDom = null;
 	tasks = [];
 	milestones = [];
-	duplicatePlan = emptyDuplicatePlan();
 	failNextSearch = false;
 	configHold = null;
 	requestLog = [];
@@ -248,8 +233,8 @@ describe("in-place data refresh", () => {
 		await waitFor(() => (container.textContent ?? "").includes("Renamed title"), "renamed card");
 		await settle();
 
-		// Only the search corpus is refetched: no statuses, config, milestone, or
-		// duplicate-plan burst, and no loading shell.
+		// Only the search corpus is refetched: no statuses, config or milestone
+		// burst, and no loading shell.
 		expect(requestedPaths()).toEqual(["/api/search"]);
 		expect(hasLoadingShell(container)).toBe(false);
 		// The unchanged card kept its DOM node: the view updated in place.
@@ -299,9 +284,7 @@ describe("in-place data refresh", () => {
 		await waitFor(() => (container.textContent ?? "").includes("Brand new card"), "externally created card");
 		await settle();
 
-		// A new task ID can introduce a duplicate, so only this path also
-		// refreshes the duplicate repair plan.
-		expect(requestedPaths()).toEqual(["/api/search", "/api/tasks/duplicates"]);
+		expect(requestedPaths()).toEqual(["/api/search"]);
 		expect(hasLoadingShell(container)).toBe(false);
 	});
 
@@ -333,35 +316,6 @@ describe("in-place data refresh", () => {
 		expect(requestedPaths()).toEqual(["/api/milestones", "/api/milestones/archived", "/api/search"]);
 	});
 
-	it("keeps refreshing the repair plan while duplicates exist, even for same-ID edits", async () => {
-		tasks = [makeTask("TASK-1", "Colliding card", "To Do")];
-		duplicatePlan = {
-			...emptyDuplicatePlan(),
-			groups: [
-				{
-					id: "TASK-1",
-					tasks: [
-						{ ...(tasks[0] as Task), filePath: "backlog/tasks/task-1 - A.md" } as Task,
-						{ ...(tasks[0] as Task), title: "Duplicate", filePath: "backlog/tasks/task-01 - B.md" } as Task,
-					],
-				},
-			],
-			repairable: true,
-			fingerprint: "live-plan",
-		} as DuplicateRepairPlan;
-		await renderBoard();
-
-		// Editing a colliding task changes the plan's fingerprint without
-		// changing the ID set, so the plan must be refetched anyway.
-		tasks = [makeTask("TASK-1", "Colliding card edited", "To Do")];
-		await act(async () => {
-			getAppDataWebSocket().deliver("tasks-updated");
-		});
-		await settle();
-
-		expect(requestedPaths()).toEqual(["/api/search", "/api/tasks/duplicates"]);
-	});
-
 	it("routes the next refresh through the full loader while a load error stands", async () => {
 		tasks = [makeTask("TASK-1", "Error-state card", "To Do")];
 		const container = await renderBoard();
@@ -386,7 +340,6 @@ describe("in-place data refresh", () => {
 			"/api/milestones/archived",
 			"/api/search",
 			"/api/statuses",
-			"/api/tasks/duplicates",
 		]);
 		expect(container.textContent).not.toContain("corpus failed");
 	});
@@ -434,7 +387,6 @@ describe("in-place data refresh", () => {
 			"/api/milestones/archived",
 			"/api/search",
 			"/api/statuses",
-			"/api/tasks/duplicates",
 		]);
 	});
 });

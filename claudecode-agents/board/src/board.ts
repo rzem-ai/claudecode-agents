@@ -2,13 +2,6 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { Milestone, Task } from "./types/index.ts";
 
-export interface BoardOptions {
-	statuses?: string[];
-}
-
-export type BoardLayout = "horizontal" | "vertical";
-export type BoardFormat = "terminal" | "markdown";
-
 export function buildKanbanStatusGroups(
 	tasks: Task[],
 	statuses: string[],

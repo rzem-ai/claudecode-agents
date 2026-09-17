@@ -1,19 +1,15 @@
 import { rename as moveFile, readFile, stat, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 import { resolveBoardRoot } from "../board-root.ts";
 import { DEFAULT_DIRECTORIES, DEFAULT_STATUSES, FALLBACK_STATUS } from "../constants/index.ts";
 import {
 	type DraftFileReference,
-	DraftIdentityError,
-	DraftParseError,
 	FileSystem,
 	isConfigValueError,
 	isCreateLockError,
-	newTaskLockError,
 } from "../file-system/operations.ts";
 import { type GitIndexEntry, GitOperations } from "../git/operations.ts";
 import { parseFrontmatter } from "../markdown/frontmatter.ts";
-import { parseTask } from "../markdown/parser.ts";
 import { assertSectionInputHasNoMarkerLines } from "../markdown/structured-sections.ts";
 import {
 	type AcceptanceCriterion,
@@ -35,21 +31,13 @@ import {
 	type TaskUpdateInput,
 } from "../types/index.ts";
 import { normalizeAssignee } from "../utils/assignee.ts";
-import { decisionIdKey } from "../utils/decision-id.ts";
-import { documentIdKey, findDocumentById, normalizeDocumentId } from "../utils/document-id.ts";
+import { findDocumentById, normalizeDocumentId } from "../utils/document-id.ts";
 import {
 	getDocumentSubPathFromRelativePath,
 	normalizeDocumentRelativePath,
 	normalizeDocumentSubPath,
 } from "../utils/document-path.ts";
 import { normalizeDueDate } from "../utils/due-date.ts";
-import {
-	type ContentIdentityReport,
-	type DraftIdentityFindings,
-	detectContentIdentityIssues,
-} from "../utils/duplicate-detection.ts";
-import { openInEditor } from "../utils/editor.ts";
-import { isAmbiguousIdError } from "../utils/entity-id.ts";
 import { generateNextDecisionId, generateNextDocId } from "../utils/id-generators.ts";
 import { createMilestoneFilterValueResolver } from "../utils/milestone-filter.ts";
 import {
@@ -84,28 +72,17 @@ import {
 	AmbiguousTaskIdError,
 	canonicalTaskId,
 	extractDraftIdFromFilename,
-	findDuplicateDraftFilenameGroups,
 	getTaskPath,
 	LOCAL_TASK_LOOKUP_HINT,
 	normalizeTaskId,
-	normalizeTaskIdentity,
 	taskIdsEqual,
 } from "../utils/task-path.ts";
 import { applyTaskFilters, createTaskSearchIndex } from "../utils/task-search.ts";
 import { sortByOrdinal } from "../utils/task-sorting.ts";
 import { attachSubtaskSummaries } from "../utils/task-subtasks.ts";
 import { formatValidTaskTypeValues, resolveTaskTypeValue } from "../utils/task-type-config.ts";
-import { upsertTaskUpdatedDate } from "../utils/task-updated-date.ts";
 import { isTerminalStatus } from "../utils/terminal-status.ts";
-import { migrateConfig, needsMigration } from "./config-migration.ts";
 import { ContentStore, type TaskCorpusSnapshot } from "./content-store.ts";
-import {
-	applyDuplicateTaskIdRepair,
-	type DuplicateRepairPlan,
-	type DuplicateRepairResult,
-	previewDuplicateTaskIdRepair,
-} from "./duplicate-task-repair.ts";
-import { migrateDraftPrefixes, needsDraftPrefixMigration } from "./prefix-migration.ts";
 import {
 	calculateBlockOrdinals,
 	calculateNewOrdinal,
@@ -115,29 +92,6 @@ import {
 import { SearchService } from "./search-service.ts";
 import { TaskIdentityIndex, type TaskIdentityRecord } from "./task-identity-index.ts";
 import type { BranchTaskStateEntry } from "./task-loader.ts";
-
-interface BlessedScreen {
-	program: {
-		disableMouse(): void;
-		enableMouse(): void;
-		hideCursor(): void;
-		showCursor(): void;
-		input: NodeJS.EventEmitter;
-		pause?: () => (() => void) | undefined;
-		flush?: () => void;
-		put?: {
-			keypad_local?: () => void;
-			keypad_xmit?: () => void;
-		};
-	};
-	leave(): void;
-	enter(): void;
-	render(): void;
-	clearRegion(x1: number, x2: number, y1: number, y2: number): void;
-	width: number;
-	height: number;
-	emit(event: string): void;
-}
 
 interface CreatedTaskWrite {
 	filePath: string;
@@ -178,20 +132,6 @@ interface TaskQueryOptions {
 interface TaskReadOptions {
 	includeCrossBranch?: boolean;
 	refreshCrossBranch?: boolean;
-}
-
-export type TuiTaskEditFailureReason =
-	| "not_found"
-	| "read_only"
-	| "editor_failed"
-	| "identity_conflict"
-	| "unreadable"
-	| "ambiguous";
-
-export interface TuiTaskEditResult {
-	changed: boolean;
-	task?: Task;
-	reason?: TuiTaskEditFailureReason;
 }
 
 /** Sanitized copies of the records that referenced a task ID being vacated, by corpus. */
@@ -433,57 +373,6 @@ export class Core {
 
 	async withCreateLock<T>(fn: () => Promise<T>): Promise<T> {
 		return await this.fs.withCreateLock(fn);
-	}
-
-	async previewDuplicateTaskIdRepair(options: { includeBranches?: boolean } = {}): Promise<DuplicateRepairPlan> {
-		const storeAlreadyReady = this.contentStore?.isInitialized() ?? false;
-		const store = await this.getContentStore();
-		if (storeAlreadyReady) {
-			if (options.includeBranches) await this.refreshTasksForTaskRead();
-			else await store.refreshLocalTaskCorpus();
-		}
-		return await previewDuplicateTaskIdRepair(this, options, store.getTaskCorpusSnapshot());
-	}
-
-	async repairDuplicateTaskIds(expectedFingerprint: string): Promise<DuplicateRepairResult> {
-		const result = await applyDuplicateTaskIdRepair(this, expectedFingerprint);
-		if (this.contentStore) {
-			await this.contentStore.refreshTasks();
-		}
-		return result;
-	}
-
-	/** Reports draft files whose numeric identities collide, whose frontmatter drifted from their filename, or that are unreadable. */
-	async diagnoseDraftIdentity(): Promise<DraftIdentityFindings> {
-		return this.fs.diagnoseDraftIdentity();
-	}
-
-	/** Reports document and decision files whose IDs collide or are missing, so lookups can fail closed. */
-	async diagnoseContentIdentity(): Promise<ContentIdentityReport> {
-		const unreadableDocuments: string[] = [];
-		const unreadableDecisions: string[] = [];
-		const [documents, decisions] = await Promise.all([
-			this.fs.listDocuments(unreadableDocuments),
-			this.fs.listDecisions(unreadableDecisions),
-		]);
-		// An empty collected path denotes the content directory itself, which the filesystem reports
-		// when it could not be scanned at all.
-		const locate = (directory: string, path: string) =>
-			path ? `${this.fs.backlogDirName}/${directory}/${path}` : `${this.fs.backlogDirName}/${directory}`;
-		const describe = (directory: string, item: { path?: string; title: string }) =>
-			item.path ? locate(directory, item.path) : item.title;
-		return {
-			documents: detectContentIdentityIssues(
-				documents.map((document) => ({ id: document.id, path: describe(DEFAULT_DIRECTORIES.DOCS, document) })),
-				documentIdKey,
-				unreadableDocuments.map((path) => locate(DEFAULT_DIRECTORIES.DOCS, path)),
-			),
-			decisions: detectContentIdentityIssues(
-				decisions.map((decision) => ({ id: decision.id, path: describe(DEFAULT_DIRECTORIES.DECISIONS, decision) })),
-				decisionIdKey,
-				unreadableDecisions.map((path) => locate(DEFAULT_DIRECTORIES.DECISIONS, path)),
-			),
-		};
 	}
 
 	private async resolveCreateOrdinal(inputOrdinal: number | undefined, isDraft: boolean): Promise<number | undefined> {
@@ -1120,206 +1009,6 @@ export class Core {
 	async getGitOps() {
 		await this.ensureConfigLoaded();
 		return this.git;
-	}
-
-	// Config migration
-	private parseLegacyInlineArray(value: string): string[] {
-		const items: string[] = [];
-		let current = "";
-		let quote: '"' | "'" | null = null;
-
-		const pushCurrent = () => {
-			const normalized = current.trim().replace(/\\(['"])/g, "$1");
-			if (normalized) {
-				items.push(normalized);
-			}
-			current = "";
-		};
-
-		for (let i = 0; i < value.length; i += 1) {
-			const ch = value[i];
-			const prev = i > 0 ? value[i - 1] : "";
-			if (quote) {
-				if (ch === quote && prev !== "\\") {
-					quote = null;
-					continue;
-				}
-				current += ch;
-				continue;
-			}
-			if (ch === '"' || ch === "'") {
-				quote = ch;
-				continue;
-			}
-			if (ch === ",") {
-				pushCurrent();
-				continue;
-			}
-			current += ch;
-		}
-		pushCurrent();
-		return items;
-	}
-
-	private stripYamlComment(value: string): string {
-		let quote: '"' | "'" | null = null;
-		for (let i = 0; i < value.length; i += 1) {
-			const ch = value[i];
-			const prev = i > 0 ? value[i - 1] : "";
-			if (quote) {
-				if (ch === quote && prev !== "\\") {
-					quote = null;
-				}
-				continue;
-			}
-			if (ch === '"' || ch === "'") {
-				quote = ch;
-				continue;
-			}
-			if (ch === "#") {
-				return value.slice(0, i).trimEnd();
-			}
-		}
-		return value;
-	}
-
-	private parseLegacyYamlValue(value: string): string {
-		const trimmed = this.stripYamlComment(value).trim();
-		const singleQuoted = trimmed.match(/^'(.*)'$/);
-		if (singleQuoted?.[1] !== undefined) {
-			return singleQuoted[1].replace(/''/g, "'");
-		}
-		const doubleQuoted = trimmed.match(/^"(.*)"$/);
-		if (doubleQuoted?.[1] !== undefined) {
-			return doubleQuoted[1].replace(/\\"/g, '"').replace(/\\'/g, "'");
-		}
-		return trimmed;
-	}
-
-	private async extractLegacyConfigMilestones(): Promise<string[]> {
-		try {
-			const configPath = this.fs.configFilePath;
-			const content = await Bun.file(configPath).text();
-			const lines = content.split("\n");
-			for (let i = 0; i < lines.length; i += 1) {
-				const line = lines[i] ?? "";
-				const match = line.match(/^(\s*)milestones\s*:\s*(.*)$/);
-				if (!match) {
-					continue;
-				}
-
-				const milestoneIndent = (match[1] ?? "").length;
-				const trailing = this.stripYamlComment(match[2] ?? "").trim();
-				if (trailing.startsWith("[")) {
-					let combined = trailing;
-					let closed = trailing.endsWith("]");
-					let j = i + 1;
-					while (!closed && j < lines.length) {
-						const segment = this.stripYamlComment(lines[j] ?? "").trim();
-						combined += segment;
-						if (segment.includes("]")) {
-							closed = true;
-							break;
-						}
-						j += 1;
-					}
-					if (closed) {
-						const openIndex = combined.indexOf("[");
-						const closeIndex = combined.lastIndexOf("]");
-						if (openIndex !== -1 && closeIndex > openIndex) {
-							const parsed = this.parseLegacyInlineArray(combined.slice(openIndex + 1, closeIndex));
-							return parsed.map((item) => this.parseLegacyYamlValue(item)).filter(Boolean);
-						}
-					}
-				}
-				if (trailing.length > 0) {
-					const single = this.parseLegacyYamlValue(trailing);
-					return single ? [single] : [];
-				}
-
-				const values: string[] = [];
-				for (let j = i + 1; j < lines.length; j += 1) {
-					const nextLine = lines[j] ?? "";
-					if (!nextLine.trim()) {
-						continue;
-					}
-					const nextIndent = nextLine.match(/^\s*/)?.[0].length ?? 0;
-					if (nextIndent <= milestoneIndent) {
-						break;
-					}
-					const trimmed = nextLine.trim();
-					if (!trimmed.startsWith("-")) {
-						continue;
-					}
-					const itemValue = this.parseLegacyYamlValue(trimmed.slice(1));
-					if (itemValue) {
-						values.push(itemValue);
-					}
-				}
-				return values;
-			}
-			return [];
-		} catch {
-			return [];
-		}
-	}
-
-	private async migrateLegacyConfigMilestonesToFiles(legacyMilestones: string[]): Promise<void> {
-		if (legacyMilestones.length === 0) {
-			return;
-		}
-		const existingMilestones = await this.fs.listMilestones();
-		const existingKeys = new Set<string>();
-		for (const milestone of existingMilestones) {
-			const idKey = milestone.id.trim().toLowerCase();
-			const titleKey = milestone.title.trim().toLowerCase();
-			if (idKey) {
-				existingKeys.add(idKey);
-			}
-			if (titleKey) {
-				existingKeys.add(titleKey);
-			}
-		}
-		for (const name of legacyMilestones) {
-			const normalized = name.trim();
-			const key = normalized.toLowerCase();
-			if (!normalized || existingKeys.has(key)) {
-				continue;
-			}
-			const created = await this.fs.createMilestone(normalized);
-			const createdIdKey = created.id.trim().toLowerCase();
-			const createdTitleKey = created.title.trim().toLowerCase();
-			if (createdIdKey) {
-				existingKeys.add(createdIdKey);
-			}
-			if (createdTitleKey) {
-				existingKeys.add(createdTitleKey);
-			}
-		}
-	}
-
-	async ensureConfigMigrated(): Promise<void> {
-		await this.ensureConfigLoaded();
-		const legacyMilestones = await this.extractLegacyConfigMilestones();
-		let config = await this.fs.loadConfig();
-		const needsSchemaMigration = !config || needsMigration(config);
-
-		if (needsSchemaMigration) {
-			config = migrateConfig(config || {});
-		}
-		if (legacyMilestones.length > 0) {
-			await this.migrateLegacyConfigMilestonesToFiles(legacyMilestones);
-		}
-		if (config && (needsSchemaMigration || legacyMilestones.length > 0)) {
-			// Rewrite config to apply schema defaults and strip legacy milestones key after successful migration.
-			await this.fs.saveConfig(config);
-		}
-
-		// Run draft prefix migration if needed (one-time migration)
-		// This renames task-*.md files in drafts/ to draft-*.md
-		if (needsDraftPrefixMigration(config)) {
-			await migrateDraftPrefixes(this.fs);
-		}
 	}
 
 	// ID generation
@@ -3750,256 +3439,6 @@ export class Core {
 				return task;
 			}),
 		);
-	}
-
-	/**
-	 * Open a file in the configured editor with minimal interference
-	 * @param filePath - Path to the file to edit
-	 * @param screen - Optional blessed screen to suspend (for TUI contexts)
-	 */
-	async editTaskInTui(taskId: string, screen: BlessedScreen, selectedTask?: Task): Promise<TuiTaskEditResult> {
-		const contextualTask = selectedTask && taskIdsEqual(selectedTask.id, taskId) ? selectedTask : undefined;
-
-		if (contextualTask && (!isLocalEditableTask(contextualTask) || contextualTask.branch)) {
-			return { changed: false, task: contextualTask, reason: "read_only" };
-		}
-
-		let resolvedTask: Task | null | undefined = contextualTask ?? (await this.getTask(taskId));
-		if (!resolvedTask) {
-			try {
-				resolvedTask = await this.fs.loadDraft(taskId);
-			} catch (error) {
-				if (isAmbiguousIdError(error)) {
-					return { changed: false, reason: "ambiguous" };
-				}
-				throw error;
-			}
-		}
-		if (!resolvedTask) {
-			return { changed: false, reason: "not_found" };
-		}
-		if (!isLocalEditableTask(resolvedTask) || resolvedTask.branch) {
-			return { changed: false, task: resolvedTask, reason: "read_only" };
-		}
-
-		const draftsDir = await this.fs.getDraftsDir();
-		const selectedFilePath = resolvedTask.filePath;
-
-		let taskFilePath: string | null = null;
-		let draftFilePath: string | null = null;
-		let editableTask: Task;
-
-		if (selectedFilePath !== undefined && dirname(selectedFilePath) === draftsDir) {
-			// The row's home directory decides its store before any task lookup: a project whose
-			// task prefix is "draft" can hold task ids identical to draft ids, so resolving by id
-			// first would silently target the task file instead of the selected draft row. The
-			// validated reference binds the editor session to this exact file — but a numeric
-			// identity shared with another file stays ambiguous and must fail closed here too.
-			let validated: Awaited<ReturnType<FileSystem["draftReferenceFromPath"]>>;
-			try {
-				validated = await this.fs.draftReferenceFromPath(selectedFilePath);
-			} catch (error) {
-				return {
-					changed: false,
-					task: resolvedTask,
-					reason: error instanceof DraftParseError ? "unreadable" : "identity_conflict",
-				};
-			}
-			const selectedDuplicates = findDuplicateDraftFilenameGroups(await this.fs.listDraftFilenames()).find((group) =>
-				group.includes(basename(selectedFilePath)),
-			);
-			if (selectedDuplicates) {
-				return { changed: false, task: resolvedTask, reason: "ambiguous" };
-			}
-			editableTask = validated.task;
-			draftFilePath = validated.filePath;
-		} else {
-			const localTask = await this.fs.loadTask(resolvedTask.id);
-			editableTask = localTask ?? resolvedTask;
-
-			taskFilePath = await getTaskPath(editableTask.id, this);
-			if (!taskFilePath) {
-				const rowFilePath = editableTask.filePath;
-				if (rowFilePath !== undefined && dirname(rowFilePath) === draftsDir) {
-					let validatedRow: Awaited<ReturnType<FileSystem["draftReferenceFromPath"]>>;
-					try {
-						validatedRow = await this.fs.draftReferenceFromPath(rowFilePath);
-					} catch (error) {
-						return {
-							changed: false,
-							task: editableTask,
-							reason: error instanceof DraftParseError ? "unreadable" : "identity_conflict",
-						};
-					}
-					const rowDuplicates = findDuplicateDraftFilenameGroups(await this.fs.listDraftFilenames()).find((group) =>
-						group.includes(basename(rowFilePath)),
-					);
-					if (rowDuplicates) {
-						return { changed: false, task: editableTask, reason: "ambiguous" };
-					}
-					draftFilePath = validatedRow.filePath;
-				} else {
-					const resolvedReference = await this.fs.resolveDraftReference(editableTask.id);
-					if (!resolvedReference) {
-						return { changed: false, task: editableTask, reason: "not_found" };
-					}
-					editableTask = resolvedReference.task;
-					draftFilePath = resolvedReference.filePath;
-				}
-			}
-		}
-
-		const filePath = taskFilePath ?? draftFilePath;
-		if (!filePath) {
-			return { changed: false, task: editableTask, reason: "not_found" };
-		}
-		// Re-reading through the validation authority keeps the editor session honest. Parse or
-		// read failures and genuine identity conflicts are reported as distinct outcomes. The
-		// known on-disk path is attached to reloaded tasks so contentStore publication works.
-		const reloadTaskAfterEdit = async (path: string): Promise<{ task: Task } | { failure: "unreadable" }> => {
-			try {
-				const content = await Bun.file(path).text();
-				const reparsed = normalizeTaskIdentity(parseTask(content));
-				return { task: { ...reparsed, filePath: path } };
-			} catch {
-				return { failure: "unreadable" };
-			}
-		};
-
-		let beforeContent: string;
-		try {
-			beforeContent = await Bun.file(filePath).text();
-		} catch {
-			return { changed: false, task: editableTask, reason: "not_found" };
-		}
-
-		const opened = await this.openEditor(filePath, screen);
-		if (!opened) {
-			return { changed: false, task: editableTask, reason: "editor_failed" };
-		}
-
-		let afterContent: string;
-		try {
-			afterContent = await Bun.file(filePath).text();
-		} catch {
-			return { changed: false, task: editableTask, reason: "not_found" };
-		}
-
-		if (afterContent === beforeContent) {
-			if (!taskFilePath) {
-				try {
-					return { changed: false, task: (await this.fs.draftReferenceFromPath(filePath)).task };
-				} catch (error) {
-					return {
-						changed: false,
-						task: editableTask,
-						reason: error instanceof DraftParseError ? "unreadable" : "identity_conflict",
-					};
-				}
-			}
-			const outcome = await reloadTaskAfterEdit(taskFilePath);
-			if ("failure" in outcome) {
-				return { changed: false, task: editableTask, reason: outcome.failure };
-			}
-			return { changed: false, task: outcome.task };
-		}
-
-		const now = new Date().toISOString().slice(0, 16).replace("T", " ");
-
-		if (!taskFilePath) {
-			// Draft close: hold the draft lock around the write+validate window so a concurrent
-			// edit cannot interleave with the save. The lock is never held across the interactive
-			// editor itself; contention detected inside fails fast and leaves the user's saved
-			// content on disk untouched. Identity or parse problems keep their distinct reasons.
-			const canonicalId = extractDraftIdFromFilename(basename(filePath)) ?? "";
-			try {
-				return await this.fs.withDraftLock({ filePath, canonicalId }, async () => {
-					const currentOnDisk = await Bun.file(filePath).text();
-					if (currentOnDisk !== afterContent) {
-						throw newTaskLockError(canonicalId);
-					}
-					await Bun.write(filePath, upsertTaskUpdatedDate(afterContent, now));
-					const validated = await this.fs.draftReferenceFromPath(filePath);
-					return { changed: true, task: validated.task };
-				});
-			} catch (error) {
-				if (error instanceof DraftParseError) {
-					return { changed: false, task: editableTask, reason: "unreadable" };
-				}
-				if (error instanceof DraftIdentityError) {
-					return { changed: false, task: editableTask, reason: "identity_conflict" };
-				}
-				throw error;
-			}
-		}
-
-		await Bun.write(filePath, upsertTaskUpdatedDate(afterContent, now));
-
-		const outcome = await reloadTaskAfterEdit(taskFilePath);
-		if ("failure" in outcome) {
-			return { changed: false, task: editableTask, reason: outcome.failure };
-		}
-		const refreshedTask = outcome.task;
-		if (this.contentStore && refreshedTask) {
-			this.contentStore.upsertTask(refreshedTask);
-		}
-
-		return {
-			changed: true,
-			task: refreshedTask ?? { ...editableTask, updatedDate: now },
-		};
-	}
-
-	async openEditor(filePath: string, screen?: BlessedScreen): Promise<boolean> {
-		const config = await this.fs.loadConfig();
-
-		// If no screen provided, use simple editor opening
-		if (!screen) {
-			return await openInEditor(filePath, config);
-		}
-
-		const program = screen.program;
-
-		// Leave alternate screen buffer FIRST
-		screen.leave();
-
-		// Reset keypad/cursor mode using terminfo if available
-		if (typeof program.put?.keypad_local === "function") {
-			program.put.keypad_local();
-			if (typeof program.flush === "function") {
-				program.flush();
-			}
-		}
-
-		// Send escape sequences directly as reinforcement
-		// ESC[0m   = Reset all SGR attributes (fixes white background in nano)
-		// ESC[?25h = Show cursor (ensure cursor is visible)
-		// ESC[?1l  = Reset DECCKM (cursor keys send CSI sequences)
-		// ESC>     = DECKPNM (numeric keypad mode)
-		const fs = await import("node:fs");
-		fs.writeSync(1, "\u001b[0m\u001b[?25h\u001b[?1l\u001b>");
-
-		// Pause the terminal AFTER leaving alt buffer (disables raw mode, releases terminal)
-		const resume = typeof program.pause === "function" ? program.pause() : undefined;
-		try {
-			return await openInEditor(filePath, config);
-		} finally {
-			// Resume terminal state FIRST (re-enables raw mode)
-			if (typeof resume === "function") {
-				resume();
-			}
-			// Re-enter alternate screen buffer
-			screen.enter();
-			// Restore application cursor mode
-			if (typeof program.put?.keypad_xmit === "function") {
-				program.put.keypad_xmit();
-				if (typeof program.flush === "function") {
-					program.flush();
-				}
-			}
-			// Full redraw
-			screen.render();
-		}
 	}
 
 	/**

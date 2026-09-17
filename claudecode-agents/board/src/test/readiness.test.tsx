@@ -4,7 +4,6 @@ import { renderToString } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { type TaskCorpus, toTaskDetail, withReadiness } from "../core/task-detail.ts";
 import type { Task } from "../types/index.ts";
-import { generateDetailContent } from "../ui/task-viewer-with-search.ts";
 import { createReadinessGraph, formatReadinessBlockers, getTaskReadiness } from "../utils/readiness.ts";
 import { applyTaskFilters } from "../utils/task-search.ts";
 import { TaskDetailsModal } from "../web/components/TaskDetailsModal.tsx";
@@ -254,34 +253,6 @@ describe("withReadiness list projection", () => {
 });
 
 describe("rendered readiness guidance", () => {
-	it("renders TUI detail readiness guidance for ready, blocked, and unresolved dependencies", () => {
-		const doneDep = makeTask("BACK-1", "Done");
-		const inProgDep = makeTask("BACK-2", "In Progress");
-		const readyTask = makeTask("BACK-3", "To Do", ["BACK-1"]);
-		const blockedTask = makeTask("BACK-4", "To Do", ["BACK-2"]);
-		const unknownDepTask = makeTask("BACK-5", "To Do", ["BACK-404"]);
-		const noDepsTask = makeTask("BACK-6", "To Do");
-		const graph = [doneDep, inProgDep, readyTask, blockedTask, unknownDepTask, noDepsTask];
-
-		const detailBody = (task: Task) =>
-			generateDetailContent(toTaskDetail(task, corpusOf(graph))).bodyContent.join("\n");
-
-		expect(detailBody(readyTask)).toContain("Readiness:");
-		expect(detailBody(readyTask)).toContain("✓ Ready to start");
-
-		expect(detailBody(blockedTask)).toContain("● Blocked by BACK-2");
-
-		expect(detailBody(unknownDepTask)).toContain("● Unknown dependency BACK-404");
-
-		// Readiness stays out of the way when it would only restate the status.
-		expect(detailBody(noDepsTask)).not.toContain("Readiness:");
-		expect(detailBody(doneDep)).not.toContain("Readiness:");
-
-		// Callers handed a stored record rather than a detail read (the board quick-look popup) get
-		// no readiness claim at all rather than one derived from an empty graph.
-		expect(generateDetailContent(blockedTask).bodyContent.join("\n")).not.toContain("Readiness:");
-	});
-
 	it("renders the web task details modal readiness badge for ready, blocked, and unresolved dependencies", () => {
 		const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost" });
 		globalThis.window = dom.window as unknown as Window & typeof globalThis;
