@@ -4,16 +4,13 @@ import { apiClient, type ReorderTaskPayload } from '../lib/api';
 import { buildLanes, DEFAULT_LANE_KEY, groupTasksByLaneAndStatus, type LaneMode, sortTasksForStatus } from '../lib/lanes';
 import { collectAvailableLabels, labelsToLower } from '../../utils/label-filter';
 import { collectArchivedMilestoneKeys, milestoneKey } from '../utils/milestones';
-import { getTerminalStatus } from '../../utils/terminal-status';
 import { getPriorityOptions, normalizePriorityValue } from '../../utils/priority-config';
 import { getProjectValues, matchesProjectFilter } from '../../utils/project-config';
 import { getTaskTypeValues, matchesTaskTypeFilter } from '../../utils/task-type-config';
 import { resolveTaskById } from '../../utils/task-id';
 import TaskColumn from './TaskColumn';
 import { BoardLoadingSkeleton } from './BoardLoadingSkeleton';
-import CleanupModal from './CleanupModal';
 import LabelFilterDropdown from './LabelFilterDropdown';
-import { SuccessToast } from './SuccessToast';
 
 interface BoardProps {
   onEditTask: (task: Task) => void;
@@ -93,10 +90,7 @@ const Board: React.FC<BoardProps> = ({
   // Set one task after dragstart, never inside it: see handleColumnDragStart.
   const [hiddenColumnsRevealed, setHiddenColumnsRevealed] = useState(false);
   const revealHiddenColumnsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showCleanupModal, setShowCleanupModal] = useState(false);
-  const [cleanupSuccessMessage, setCleanupSuccessMessage] = useState<string | null>(null);
   const [collapsedLanes, setCollapsedLanes] = useState<Record<string, boolean>>({});
-  const terminalStatus = getTerminalStatus(statuses);
   const priorityOptions = useMemo(
     () => [{ label: 'All priorities', value: '' }, ...getPriorityOptions(availablePriorities)],
     [availablePriorities]
@@ -433,21 +427,6 @@ const Board: React.FC<BoardProps> = ({
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : 'Failed to reorder task');
     }
-  };
-
-  const handleCleanupSuccess = async (movedCount: number) => {
-    setShowCleanupModal(false);
-    setCleanupSuccessMessage(`Successfully moved ${movedCount} task${movedCount !== 1 ? 's' : ''} to completed folder`);
-
-    // Refresh data to reflect the changes
-    if (onRefreshData) {
-      await onRefreshData();
-    }
-
-    // Auto-dismiss after 4 seconds
-    setTimeout(() => {
-      setCleanupSuccessMessage(null);
-    }, 4000);
   };
 
   // Use all tasks for building lanes (so we can show/collapse other milestones)
@@ -899,7 +878,6 @@ const Board: React.FC<BoardProps> = ({
                             dateFormat={dateFormat}
                             onDragStart={handleColumnDragStart}
                             onDragEnd={handleColumnDragEnd}
-                            onCleanup={status === terminalStatus ? () => setShowCleanupModal(true) : undefined}
                             {...selectionProps}
                           />
                         </div>
@@ -931,34 +909,12 @@ const Board: React.FC<BoardProps> = ({
                   dateFormat={dateFormat}
                   onDragStart={handleColumnDragStart}
                   onDragEnd={handleColumnDragEnd}
-                  onCleanup={status === terminalStatus ? () => setShowCleanupModal(true) : undefined}
                   {...selectionProps}
                 />
               </div>
             ))}
           </div>
         </div>
-      )}
-
-      {/* Cleanup Modal */}
-      <CleanupModal
-        isOpen={showCleanupModal}
-        onClose={() => setShowCleanupModal(false)}
-        onSuccess={handleCleanupSuccess}
-        dateFormat={dateFormat}
-      />
-
-      {/* Cleanup Success Toast */}
-      {cleanupSuccessMessage && (
-        <SuccessToast
-          message={cleanupSuccessMessage}
-          onDismiss={() => setCleanupSuccessMessage(null)}
-          icon={
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          }
-        />
       )}
     </div>
   );

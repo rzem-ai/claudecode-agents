@@ -58,7 +58,7 @@ describe("BacklogServer loopback binding", () => {
 			server = new BacklogServer(TEST_DIR);
 			await server.start(port, false);
 
-			expect(logs).toContain(`🚀 Backlog.md browser interface running at http://127.0.0.1:${port}`);
+			expect(logs).toContain(`🚀 Board browser interface running at http://127.0.0.1:${port}`);
 			expect(logs).toContain("💡 Open your browser and navigate to the URL above");
 			expect(logs).not.toContain("🌐 Opening browser...");
 		} finally {

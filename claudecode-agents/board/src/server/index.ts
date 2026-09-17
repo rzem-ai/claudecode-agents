@@ -541,7 +541,7 @@ export class BacklogServer {
 				throw error;
 			}
 			const url = `http://${BROWSER_HOST}:${finalPort}`;
-			console.log(`🚀 Backlog.md browser interface running at ${url}`);
+			console.log(`🚀 Board browser interface running at ${url}`);
 			console.log(`📊 Project: ${this.projectName}`);
 			const stopKey = process.platform === "darwin" ? "Cmd+C" : "Ctrl+C";
 			console.log(`⏹️  Press ${stopKey} to stop the server`);

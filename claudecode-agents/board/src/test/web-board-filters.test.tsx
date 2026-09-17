@@ -265,7 +265,7 @@ afterEach(() => {
 });
 
 describe("Web board filters", () => {
-	// The cleanup preview renders stored timestamps in the viewer's timezone, so pin one.
+	// The board renders stored timestamps in the viewer's timezone, so pin one.
 	pinTimeZone("Asia/Tokyo");
 
 	it("publishes every returned reorder task without a foreground refresh", async () => {
@@ -497,61 +497,5 @@ describe("Web board filters", () => {
 		expect(text).toContain("Improve board");
 		expect(text).not.toContain("m-2");
 		expect(text).not.toContain("Write docs");
-	});
-
-	it("shows cleanup on the final configured status column when it is not named Done", () => {
-		const container = renderBoardPage(undefined, {
-			statuses: ["To Do", "Review", "Closed"],
-			tasks: [createTask({ id: "task-200", title: "Closed task", status: "Closed" })],
-		});
-
-		const cleanupButtons = Array.from(container.querySelectorAll("button")).filter((button) =>
-			button.textContent?.includes("Clean Up Old Tasks"),
-		);
-		expect(cleanupButtons).toHaveLength(1);
-	});
-
-	it("uses the configured date format in the board cleanup preview", async () => {
-		const originalGetCleanupPreview = apiClient.getCleanupPreview.bind(apiClient);
-		apiClient.getCleanupPreview = async (age) => {
-			expect(age).toBe(1);
-			return {
-				count: 1,
-				tasks: [
-					{
-						id: "task-200",
-						title: "Closed task",
-						createdDate: "2026-02-09 06:01",
-					},
-				],
-			};
-		};
-
-		try {
-			const container = renderBoardPage(undefined, {
-				statuses: ["To Do", "Review", "Closed"],
-				tasks: [createTask({ id: "task-200", title: "Closed task", status: "Closed" })],
-				dateFormat: "dd/mm/yyyy",
-			});
-
-			const cleanupButton = Array.from(container.querySelectorAll("button")).find((button) =>
-				button.textContent?.includes("Clean Up Old Tasks"),
-			);
-			expect(cleanupButton).toBeTruthy();
-			await clickElement(cleanupButton as Element);
-
-			const oneDayButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "1 day");
-			expect(oneDayButton).toBeTruthy();
-			await clickElement(oneDayButton as Element);
-
-			await waitFor(() => (container.textContent ?? "").includes("09/02/2026 15:01"));
-			expect(container.textContent).not.toContain("2026-02-09 06:01");
-			const renderedDate = Array.from(container.querySelectorAll("span[title]")).find(
-				(element) => element.textContent === "09/02/2026 15:01",
-			);
-			expect(renderedDate?.getAttribute("title")).toBe("09/02/2026 06:01 (UTC)");
-		} finally {
-			apiClient.getCleanupPreview = originalGetCleanupPreview;
-		}
 	});
 });

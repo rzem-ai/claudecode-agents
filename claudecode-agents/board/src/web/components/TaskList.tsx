@@ -9,7 +9,6 @@ import type {
 import { DEFAULT_STATUSES } from "../../constants/index.ts";
 import { collectAvailableLabels } from "../../utils/label-filter.ts";
 import { compareTaskIds, compareTaskIdsDescending } from "../../utils/task-sorting.ts";
-import { isTerminalStatus } from "../../utils/terminal-status.ts";
 import { collectArchivedMilestoneKeys, getMilestoneLabel, milestoneKey } from "../utils/milestones";
 import { parseStoredUtcDate } from "../utils/date-display";
 import {
@@ -18,11 +17,9 @@ import {
 	getPriorityRank,
 	resolvePriorityValue,
 } from "../../utils/priority-config.ts";
-import CleanupModal from "./CleanupModal";
 import StoredDate from "./StoredDate";
 import AcceptanceCriteriaProgress from "./AcceptanceCriteriaProgress";
 import LabelFilterDropdown from "./LabelFilterDropdown";
-import { SuccessToast } from "./SuccessToast";
 
 interface TaskListProps {
 	onEditTask: (task: Task) => void;
@@ -34,7 +31,6 @@ interface TaskListProps {
 	availablePriorities?: string[];
 	milestoneEntities: Milestone[];
 	archivedMilestones: Milestone[];
-	onRefreshData?: () => Promise<void>;
 	dateFormat?: string;
 	isLoading?: boolean;
 }
@@ -120,7 +116,6 @@ const TaskList: React.FC<TaskListProps> = ({
 	availablePriorities,
 	milestoneEntities,
 	archivedMilestones,
-	onRefreshData,
 	dateFormat,
 	isLoading = false,
 }) => {
@@ -152,8 +147,6 @@ const TaskList: React.FC<TaskListProps> = ({
 	const [labelFilter, setLabelFilter] = useState<string[]>(initialLabelParams);
 	const [displayTasks, setDisplayTasks] = useState<Task[]>(() => sortTasksByIdDescending(tasks));
 	const [error, setError] = useState<string | null>(null);
-	const [showCleanupModal, setShowCleanupModal] = useState(false);
-	const [cleanupSuccessMessage, setCleanupSuccessMessage] = useState<string | null>(null);
 	const [sortColumn, setSortColumn] = useState<TaskSortColumn>("id");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 	const priorityOptions = useMemo(
@@ -163,7 +156,6 @@ const TaskList: React.FC<TaskListProps> = ({
 	const tableHeaderScrollRef = useRef<HTMLDivElement | null>(null);
 	const tableBodyScrollRef = useRef<HTMLDivElement | null>(null);
 	const isSyncingTableScrollRef = useRef(false);
-	const isFilteringTerminalStatus = statusFilter.some((status) => isTerminalStatus(status, statusOptions));
 	const milestoneAliasToCanonical = useMemo(() => {
 		const aliasMap = new Map<string, string>();
 		const collectIdAliasKeys = (value: string): string[] => {
@@ -518,21 +510,6 @@ const TaskList: React.FC<TaskListProps> = ({
 		setError(null);
 	};
 
-	const handleCleanupSuccess = async (movedCount: number) => {
-		setShowCleanupModal(false);
-		setCleanupSuccessMessage(`Successfully moved ${movedCount} task${movedCount !== 1 ? 's' : ''} to completed folder`);
-
-		// Refresh the data - existing effects will handle re-filtering automatically
-		if (onRefreshData) {
-			await onRefreshData();
-		}
-
-		// Auto-dismiss success message after 4 seconds
-		setTimeout(() => {
-			setCleanupSuccessMessage(null);
-		}, 4000);
-	};
-
 	const getStatusColor = (status: string) => {
 		switch (status.toLowerCase()) {
 			case "to do":
@@ -781,20 +758,6 @@ const TaskList: React.FC<TaskListProps> = ({
 					</div>
 
 					<div className="flex items-center gap-3 flex-shrink-0">
-						{isFilteringTerminalStatus && currentCount > 0 && (
-								<button
-									type="button"
-									onClick={() => setShowCleanupModal(true)}
-									className="py-2 px-3 text-sm border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200 flex items-center gap-2 whitespace-nowrap"
-									title="Clean up old completed tasks"
-								>
-									<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-										<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-								</svg>
-								Clean Up
-							</button>
-						)}
-
 							{hasActiveFilters && (
 								<button
 									type="button"
@@ -985,27 +948,6 @@ const TaskList: React.FC<TaskListProps> = ({
 						</table>
 					</div>
 				</div>
-			)}
-
-			{/* Cleanup Modal */}
-			<CleanupModal
-				isOpen={showCleanupModal}
-				onClose={() => setShowCleanupModal(false)}
-				onSuccess={handleCleanupSuccess}
-				dateFormat={dateFormat}
-			/>
-
-			{/* Cleanup Success Toast */}
-			{cleanupSuccessMessage && (
-				<SuccessToast
-					message={cleanupSuccessMessage}
-					onDismiss={() => setCleanupSuccessMessage(null)}
-					icon={
-						<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-						</svg>
-					}
-				/>
 			)}
 		</div>
 	);

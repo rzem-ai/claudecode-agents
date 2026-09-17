@@ -10,8 +10,6 @@ import Settings from './components/Settings';
 import Statistics from './components/Statistics';
 import MilestonesPage from './components/MilestonesPage';
 import TaskDetailsModal from './components/TaskDetailsModal';
-import InitializationScreen from './components/InitializationScreen';
-import LoadingSpinner from './components/LoadingSpinner';
 import { SuccessToast } from './components/SuccessToast';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TaskIdIndexProvider } from './contexts/TaskIdIndexContext';
@@ -249,9 +247,6 @@ function AppContent() {
   const [dependencyCleanupNotice, setDependencyCleanupNotice] = useState<string | null>(null);
   const dependencyCleanupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // Initialization state
-  const [isInitialized, setIsInitialized] = useState<boolean | null>(null);
-  
   // Centralized data state
   const [tasks, setTasks] = useState<Task[]>([]);
   const kanbanTasks = React.useMemo(() => filterKanbanTasks(tasks), [tasks]);
@@ -265,7 +260,6 @@ function AppContent() {
   const milestoneEntitiesRef = useRef<Milestone[]>([]);
   const archivedMilestonesRef = useRef<Milestone[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<Error | null>(null);
   
   const { isOnline } = useHealthCheckContext();
@@ -301,28 +295,9 @@ function AppContent() {
   React.useEffect(() => {
     getWebVersion().then(version => {
       if (version) {
-        document.body.setAttribute('data-version', `Backlog.md - v${version}`);
+        document.body.setAttribute('data-version', `Board - v${version}`);
       }
     });
-  }, []);
-
-  // Check initialization status on mount
-  React.useEffect(() => {
-    const checkInitStatus = async () => {
-      try {
-        const status = await apiClient.checkStatus();
-        setIsInitialized(status.initialized);
-      } catch (error) {
-        // If we can't check status, assume not initialized
-        console.error('Failed to check initialization status:', error);
-        setIsInitialized(false);
-      }
-    };
-    checkInitStatus();
-  }, []);
-
-  const handleInitialized = useCallback(() => {
-    setIsInitialized(true);
   }, []);
 
   const applySearchResults = useCallback((
@@ -448,17 +423,13 @@ function AppContent() {
       if (loadAllDataRequestRef.current === requestId) {
 				pendingDataRequestRef.current = null;
         setIsLoading(false);
-        setLoadingMessage(null);
       }
     }
   }, [applySearchResults, applyMilestoneIds, applyLoadError]);
 
   React.useEffect(() => {
-    // Only load data when initialized
-    if (isInitialized === true) {
-      loadAllData();
-    }
-  }, [loadAllData, isInitialized]);
+    loadAllData();
+  }, [loadAllData]);
 
   // Reload data when connection is restored
   React.useEffect(() => {
@@ -577,7 +548,7 @@ function AppContent() {
   // one: from this moment the modal names a different session.
   useEffect(() => {
     const current = modalRef.current;
-    if (!routeTaskId || !routeBasePath || isInitialized !== true) {
+    if (!routeTaskId || !routeBasePath) {
       if (!routeTaskId && current.kind === 'detail' && current.fromRoute) {
         clearTaskModal();
       }
@@ -599,7 +570,7 @@ function AppContent() {
       return;
     }
     openDetailModal(routeTaskId, { fromRoute: true });
-  }, [clearTaskModal, isInitialized, location.search, navigate, openDetailModal, routeBasePath, routeTaskId]);
+  }, [clearTaskModal, location.search, navigate, openDetailModal, routeBasePath, routeTaskId]);
 
   useEffect(() => {
     if (taskRouteError) {
@@ -776,24 +747,21 @@ function AppContent() {
 	  const loadingState = parseBrowserLoadingState(event.data);
 	  if (loadingState?.type === 'loading') {
 		if (pendingDataRequestRef.current === null) protocolOnlyLoadingRef.current = true;
-		// Once content is on screen it stays interactive; the header indexing
-		// indicator (driven by loadingMessage) is the only loading signal. A new
-		// loading attempt always clears a stale terminal error, so a passive
-		// client shows its cached content instead of the obsolete failure.
+		// Once content is on screen it stays interactive, so only a client with
+		// nothing rendered yet shows the loading state. A new loading attempt
+		// always clears a stale terminal error, so a passive client shows its
+		// cached content instead of the obsolete failure.
 		if (!hasLoadedDataRef.current) setIsLoading(true);
 		applyLoadError(null);
-		setLoadingMessage(loadingState.message);
 	  } else if (loadingState?.type === 'loaded') {
 		const shouldRefresh = protocolOnlyLoadingRef.current && pendingDataRequestRef.current === null;
 		protocolOnlyLoadingRef.current = false;
-		setLoadingMessage(null);
 		// Indexing can surface cross-branch data (including duplicate findings)
 		// that an incremental reconcile would miss, so reload everything.
 		if (shouldRefresh) void fullRefreshData();
 	  } else if (loadingState?.type === 'error') {
 		protocolOnlyLoadingRef.current = false;
 		setIsLoading(false);
-		setLoadingMessage(null);
 		applyLoadError(new Error(loadingState.message));
       } else if (event.data === "tasks-updated") {
         void refreshData();
@@ -880,27 +848,6 @@ function AppContent() {
     }
   };
 
-  // Show loading state while checking initialization
-  if (isInitialized === null) {
-    return (
-      <ThemeProvider>
-        <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900" role="status">
-          <LoadingSpinner size="md" text="" />
-          <span className="sr-only">Loading</span>
-        </div>
-      </ThemeProvider>
-    );
-  }
-
-  // Show initialization screen if not initialized
-  if (isInitialized === false) {
-    return (
-      <ThemeProvider>
-        <InitializationScreen onInitialized={handleInitialized} />
-      </ThemeProvider>
-    );
-  }
-
   const boardPage = (
     <BoardPage
       onEditTask={handleEditTask}
@@ -934,7 +881,6 @@ function AppContent() {
       availablePriorities={config?.priorities}
       milestoneEntities={milestoneEntities}
       archivedMilestones={archivedMilestones}
-      onRefreshData={refreshData}
       dateFormat={config?.dateFormat}
       isLoading={isLoading}
     />
@@ -955,7 +901,6 @@ function AppContent() {
                 docs={docs}
                 decisions={decisions}
                 isLoading={isLoading}
-                loadingMessage={loadingMessage}
                 error={loadError}
                 onRefreshData={refreshData}
               />

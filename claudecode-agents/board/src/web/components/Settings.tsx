@@ -251,23 +251,6 @@ const Settings: React.FC = () => {
 									Default status for new tasks
 								</p>
 							</div>
-
-							<div>
-								<label htmlFor="defaultEditor" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-									Default Editor
-								</label>
-								<input
-									id="defaultEditor"
-									type="text"
-									value={config.defaultEditor}
-									onChange={(e) => handleInputChange('defaultEditor', e.target.value)}
-									className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-stone-500 dark:focus:ring-stone-400 transition-colors duration-200"
-									placeholder="e.g., vim, nano, code"
-								/>
-								<p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-									Editor command to use for editing tasks (overrides EDITOR environment variable)
-								</p>
-							</div>
 						</div>
 					</div>
 
@@ -337,26 +320,6 @@ const Settings: React.FC = () => {
 								{validationErrors.defaultPort && (
 									<p className="mt-1 text-sm text-red-600 dark:text-red-400">{validationErrors.defaultPort}</p>
 								)}
-							</div>
-
-							<div>
-								<label className="flex items-center justify-between">
-									<div>
-										<span className="text-sm font-medium text-gray-700 dark:text-gray-300">Auto Open Browser</span>
-										<p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-											Automatically open browser when starting web UI
-										</p>
-									</div>
-									<div className="relative inline-flex items-center cursor-pointer">
-										<input
-											type="checkbox"
-											checked={config.autoOpenBrowser}
-											onChange={(e) => handleInputChange('autoOpenBrowser', e.target.checked)}
-											className="sr-only peer"
-										/>
-										<div className="w-11 h-6 bg-gray-200 dark:bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-circle peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-circle after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-									</div>
-								</label>
 							</div>
 
 							<div>

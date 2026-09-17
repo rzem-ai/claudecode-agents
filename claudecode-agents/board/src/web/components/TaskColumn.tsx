@@ -15,7 +15,6 @@ interface TaskColumnProps {
   dragSourceLane?: string | null;
   onDragStart?: (context: { status: string; laneId?: string | null }) => void;
   onDragEnd?: () => void;
-  onCleanup?: () => void;
   laneId?: string;
   targetMilestone?: string | null;
   priorityOrder?: string[];
@@ -69,7 +68,6 @@ const TaskColumn: React.FC<TaskColumnProps> = ({
   dragSourceLane,
   onDragStart,
   onDragEnd,
-  onCleanup,
   laneId,
   targetMilestone,
   priorityOrder,
@@ -426,22 +424,6 @@ const TaskColumn: React.FC<TaskColumnProps> = ({
             {dragSourceStatus && dragSourceStatus !== title
               ? `Drop to move`
               : `Empty`}
-          </div>
-        )}
-
-        {/* Cleanup button for the configured terminal column */}
-        {onCleanup && tasks.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-	            <button
-	              onClick={onCleanup}
-	              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition-colors duration-200"
-	              title="Clean up old completed tasks"
-	            >
-	              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-	                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-              Clean Up Old Tasks
-            </button>
           </div>
         )}
       </div>

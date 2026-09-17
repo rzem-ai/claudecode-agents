@@ -456,8 +456,6 @@ const renderApp = async (
 	path: string,
 	options: {
 		advanceHealthSocket?: boolean;
-		afterInitialStatus?: (container: HTMLElement) => void | Promise<void>;
-		beforeInitialStatus?: (container: HTMLElement) => void | Promise<void>;
 		operationRef?: { current?: FetchOperation };
 	} = {},
 ): Promise<HTMLElement> => {
@@ -471,7 +469,6 @@ const renderApp = async (
 	const controlledTimer =
 		requestedUrl.searchParams.has("highlight") || options.advanceHealthSocket ? controlTimer(100) : null;
 	const operation = new FetchOperation(`render ${path}`, [
-		expectFetch("initial status", "/api/status"),
 		expectFetch("initial search", "/api/search"),
 		...(routeId && isValidTaskId(routeId)
 			? [expectFetch("routed task", `/api/task/${encodeURIComponent(routeId)}`)]
@@ -491,15 +488,6 @@ const renderApp = async (
 		);
 		await Promise.resolve();
 	});
-	if (options.beforeInitialStatus) {
-		await act(async () => options.beforeInitialStatus?.(container as HTMLElement));
-	}
-	await act(async () => operation.settle("initial status"));
-	// Runs outside act so the callback can wrap its own act-based waits and then
-	// observe flushed DOM state.
-	if (options.afterInitialStatus) {
-		await options.afterInitialStatus(container as HTMLElement);
-	}
 	await act(async () => operation.settle("initial search"));
 	if (controlledTimer) {
 		await act(async () => controlledTimer.advance());
@@ -600,17 +588,6 @@ const assertState = (predicate: () => boolean, message: string) => {
 	expect(predicate(), message).toBe(true);
 };
 
-// The header indexing indicator appears 250ms after a loading message arrives and
-// fades out 200ms after it clears; these waits let real timers cross those windows.
-const waitForIndicatorAppearance = () =>
-	act(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 350));
-	});
-const waitForIndicatorExit = () =>
-	act(async () => {
-		await new Promise((resolve) => setTimeout(resolve, 300));
-	});
-
 afterEach(async () => {
 	const fetchErrors: Error[] = [];
 	controlledTimerCleanup?.();
@@ -647,22 +624,6 @@ afterEach(async () => {
 });
 
 describe("task detail routes", () => {
-	it("preserves a retained Core phase when initial data loading starts after the socket connects", async () => {
-		const phase = "Loading tasks from local and remote branches...";
-		let observedWhileSearchPending = false;
-		await renderApp("/board", {
-			beforeInitialStatus: async () => {
-				getAppDataWebSocket().deliver(JSON.stringify({ type: "loading", message: phase }));
-				await Promise.resolve();
-			},
-			afterInitialStatus: async (rendered) => {
-				await waitForIndicatorAppearance();
-				observedWhileSearchPending = rendered.textContent?.includes(phase) ?? false;
-			},
-		});
-		expect(observedWhileSearchPending).toBe(true);
-	});
-
 	it("does not duplicate a completed HTTP refresh when the loaded frame arrives later", async () => {
 		await renderApp("/board");
 		const dataSocket = getAppDataWebSocket();
@@ -701,9 +662,6 @@ describe("task detail routes", () => {
 			dataSocket.deliver(JSON.stringify({ type: "loading", message: phase }));
 			await Promise.resolve();
 		});
-		await waitForIndicatorAppearance();
-		expect(container.textContent).toContain(phase);
-
 		const reconciliation = new FetchOperation("passive shared retry completion", [
 			expectFetch("passive config", "/api/config"),
 			expectFetch("passive search", "/api/search"),
@@ -715,8 +673,6 @@ describe("task detail routes", () => {
 		await act(async () => reconciliation.settle("passive config", "passive search"));
 		reconciliation.finish();
 
-		await waitForIndicatorExit();
-		expect(container.textContent).not.toContain(phase);
 		expect(container.querySelector("[aria-label='Loading tasks']")).toBeNull();
 		expect(container.textContent).toContain(tasks[0]?.title ?? "");
 	});
@@ -757,9 +713,6 @@ describe("task detail routes", () => {
 			dataSocket.deliver(JSON.stringify({ type: "loading", message: phase }));
 			await Promise.resolve();
 		});
-		await waitForIndicatorAppearance();
-		expect(container.textContent).toContain(phase);
-
 		const recovery = new FetchOperation("protocol-only socket close recovery", []);
 		await act(async () => {
 			dataSocket.disconnect();

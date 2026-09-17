@@ -380,31 +380,6 @@ export class ApiClient {
 		return response.json();
 	}
 
-	async getCleanupPreview(age: number): Promise<{
-		count: number;
-		tasks: Array<{ id: string; title: string; updatedDate?: string; createdDate: string }>;
-	}> {
-		return this.fetchJson<{
-			count: number;
-			tasks: Array<{ id: string; title: string; updatedDate?: string; createdDate: string }>;
-		}>(`${API_BASE}/tasks/cleanup?age=${age}`);
-	}
-
-	async executeCleanup(
-		age: number,
-	): Promise<{ success: boolean; movedCount: number; totalCount: number; message: string; failedTasks?: string[] }> {
-		return this.fetchJson<{
-			success: boolean;
-			movedCount: number;
-			totalCount: number;
-			message: string;
-			failedTasks?: string[];
-		}>(`${API_BASE}/tasks/cleanup/execute`, {
-			method: "POST",
-			body: JSON.stringify({ age }),
-		});
-	}
-
 	async updateTaskStatus(id: string, status: TaskStatus): Promise<Task> {
 		return this.updateTask(id, { status });
 	}
@@ -647,38 +622,6 @@ export class ApiClient {
 
 	async checkStatus(): Promise<InitializationStatus> {
 		return this.fetchJson<InitializationStatus>(`${API_BASE}/status`);
-	}
-
-	async initializeProject(options: {
-		projectName: string;
-		backlogDirectory?: string;
-		backlogDirectorySource?: "backlog" | ".backlog" | "custom";
-		configLocation?: "folder" | "root";
-		integrationMode: "mcp" | "cli" | "none";
-		mcpClients?: ("claude" | "codex" | "gemini" | "kiro" | "guide")[];
-		agentInstructions?: ("CLAUDE.md" | "AGENTS.md" | "GEMINI.md" | ".github/copilot-instructions.md")[];
-		installClaudeAgent?: boolean;
-		filesystemOnly?: boolean;
-		advancedConfig?: {
-			checkActiveBranches?: boolean;
-			remoteOperations?: boolean;
-			activeBranchDays?: number;
-			bypassGitHooks?: boolean;
-			autoCommit?: boolean;
-			zeroPaddedIds?: number;
-			taskPrefix?: string;
-			defaultEditor?: string;
-			defaultPort?: number;
-			autoOpenBrowser?: boolean;
-		};
-	}): Promise<{ success: boolean; projectName: string; mcpResults?: Record<string, string> }> {
-		return this.fetchJson<{ success: boolean; projectName: string; mcpResults?: Record<string, string> }>(
-			`${API_BASE}/init`,
-			{
-				method: "POST",
-				body: JSON.stringify(options),
-			},
-		);
 	}
 }
 
