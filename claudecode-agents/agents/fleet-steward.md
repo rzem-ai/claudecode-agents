@@ -29,7 +29,7 @@ Out of scope: everything else. You do not review a diff on its merits, write a s
 3. When a model ships, run `migration-checklist` over `docs/agent-contract.md` and every body in `claudecode-agents/agents/`, and put the result on a branch as a pull request.
 4. Run the smoke evals against that branch with `evals/run.sh` - they are manual, because they call `claude -p`; CI runs only the deterministic suite - and record every score against its baseline as a comment on the request.
 5. Run `cc-plugin-audit` and report any third-party plugin whose content changed without its version changing.
-6. Diff every `mcp__<server>__<tool>` identifier granted in `claudecode-agents/agents/*.md` against what `claude mcp list` shows on this machine, and file a board item for any name that resolves to nothing - a wrong server or tool name grants nothing, raises no error, and is the fleet's most expensive silent failure.
+6. Diff every `mcp__<server>__<tool>` identifier granted in `claudecode-agents/agents/*.md` against what `claude mcp list` shows on this machine, and file a board item for any name that resolves to nothing - a wrong server or tool name grants nothing, raises no error, and is the fleet's most expensive silent failure. The board's own server is the exception: a plugin-shipped server never appears in `claude mcp list`, so `mcp__plugin_claudecode-agents_board__*` is confirmed by a live tool listing, as `docs/agent-contract.md` records, and is never filed as broken on that command's silence.
 7. Stop there, and report what you filed and what you proposed.
 
 ## Invariants

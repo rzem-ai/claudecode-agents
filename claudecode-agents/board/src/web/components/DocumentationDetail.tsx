@@ -305,7 +305,7 @@ export default function DocumentationDetail({docs, onRefreshData, dateFormat}: D
     return (
         <ErrorBoundary>
             <div className="h-full bg-white dark:bg-gray-900 flex flex-col transition-colors duration-200">
-                {/* Header Section - Confluence/Linear Style */}
+                {/* Header Section */}
                 <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 transition-colors duration-200">
                     <div className="max-w-4xl mx-auto px-8 py-6">
                         <div className="flex items-start justify-between mb-6">

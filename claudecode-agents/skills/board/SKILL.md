@@ -1,26 +1,26 @@
 ---
 name: board
-description: How the Linear board works - the team, its projects and issues, the meaning of the five columns (to do, doing, blocked, blocked by human, done), which columns are written by hooks and which a human-facing assistant writes itself, the `Board-Item:` line that tells a hook which issue a spawn is working on, how the handoff's Decisions needed lines reach the human queue, and what earns a board item at all.
-when_to_use: Read before filing, reading, moving, commenting on or closing any Linear issue or project, before spawning a subagent against an item, before reporting board status to the human, and whenever you are deciding whether a piece of work is board work or just a task inside the session.
+description: How the board works - its projects and issues, the meaning of the five columns (to do, doing, blocked, blocked by human, done), which columns are written by hooks and which a human-facing assistant writes itself, the `Board-Item:` line that tells a hook which issue a spawn is working on, how the handoff's Decisions needed lines reach the human queue, and what earns a board item at all.
+when_to_use: Read before filing, reading, moving, commenting on or closing any board item or project, before spawning a subagent against an item, before reporting board status to the human, and whenever you are deciding whether a piece of work is board work or just a task inside the session.
 ---
 
 # The board
 
-The board lives in Linear: one workspace, one team, and the board is the team's issues grouped by workflow state. Nothing sits between the board and Claude Code's native task list.
+The board is a directory of markdown files, one per item, at `board/tasks/` under the memory tree, and the board is those files grouped by status. It is written through the plugin's own `board` binary and never by hand; the memory sync agent carries it between machines. Nothing sits between the board and Claude Code's native task list.
 
-**Projects** - one Linear project per bounded body of work in a repo or product area. A goal spanning several projects is a Linear initiative, so it has somewhere to live without inventing a field.
+**Projects** - one entry in the config's `projects` list per bounded body of work in a repo or product area. A goal spanning projects is a milestone shared across them, or a document.
 
-**Issues** - one issue per tracked unit of work, in a project, with milestones on the project where there is a real date, and sub-issues as Linear's native parent relation. The board is the five-column view over these issues. One workspace holds everything, because a board you have to mentally join to another board is not one place to look.
+**Issues** - one issue per tracked unit of work, in a project, with milestones on the project where there is a real date, and sub-items as a parent task, `BD-12.1` under `BD-12`. The board is the five-column view over these issues. One tree holds everything, because a board you have to mentally join to another board is not one place to look.
 
 ## What earns an item
 
-An issue in the glossary sense earns a Linear issue. That is the unit of work the human cares about, and it either has a spec or is trivial enough not to need one. A sub-issue earns an issue too and stays under its parent.
+An issue in the glossary sense earns a task file on the board. That is the unit of work the human cares about, and it either has a spec or is trivial enough not to need one. A sub-issue earns an issue too and stays under its parent.
 
 A Task in the glossary sense never appears on the board. Tasks are the execution layer inside a session, cheap and many, created with `TaskCreate` and dead when the session ends. One issue may spawn twenty of them and the board does not move. Sessions, phases, rounds, handoffs and reviews are not items either. If you are filing something to remember it for the next ten minutes, it is a task, not an item.
 
 The lead files work that surfaces mid-run. An agent that spots adjacent work while doing a task does not file it itself: the work leaves the run as a `Propose item:` line under Decisions needed, and the lead files it when it merges the handoffs.
 
-`fleet-steward` is the named exception, and the only one. Its sweep is scheduled and unattended rather than mid-run, and there is no lead in the loop to file for it, so proposing would mean a weekly run produced nothing at all until the human next started a session. It files what the sweep found itself, as issues under the Agent fleet project. That is a licence to create issues and comment on them and nothing else: it still never edits a field, moves an issue or writes a state on one that already exists.
+`fleet-steward` is the named exception, and the only one. Its sweep is scheduled and unattended rather than mid-run, and there is no lead in the loop to file for it, so proposing would mean a weekly run produced nothing at all until the human next started a session. It files what the sweep found itself, as items under the `Claude Agents` project. That is a licence to create issues and comment on them and nothing else: it still never edits a field, moves an issue or writes a state on one that already exists.
 
 ## The five columns
 
@@ -32,7 +32,7 @@ The lead files work that surfaces mid-run. An agent that spots adjacent work whi
 | Blocked by human | Waiting on an answer from the human. The human queue | `SubagentStop`, on a `Blocker:` line in the handoff |
 | Done | The run finished and its tests passed | `TaskCompleted` hook |
 
-The columns are Linear workflow states on the team, and the hooks find them by name, ignoring case and spaces, so a team whose state says `Todo` satisfies the default `To do` without configuration. A team that uses different words - `In Progress` where the fleet says `Doing` - either renames the state or points `BOARD_COL_*` in `~/.config/claudecode-agents/board.env` at the name the team uses. Blocked and Blocked by human are usually states a team has to add; create both with the `started` type, since an item in either is picked up, not waiting to start.
+The columns are the `statuses` list in `board/config.yml`, spelled exactly as the table has them, and the hooks match them ignoring case. `board.env` overrides still exist for a tree whose config spells them differently, but the installer writes the fleet's spelling and nothing should need one.
 
 Blocked and blocked by human are separate columns because they need different responses. Blocked is something to wait out or work around. Blocked by human costs the human an interruption, and it is the only column they monitor.
 
@@ -40,7 +40,7 @@ Blocked and blocked by human are separate columns because they need different re
 
 Two environments share this board and they write it differently. Know which one you are in before you touch anything.
 
-**In the fleet, columns are written by hooks and never by an agent.** Three hooks cover every transition in the table above, each calling Linear's GraphQL API directly with their own key. So do not move an item, do not ask for one to be moved, and do not report that you moved one. The only thing you contribute is a correctly formatted handoff, because that is what the hook reads. An agent body or a run that tries to update a state is wrong even when the state it wants is correct. Filing a new issue is a different act from writing a column: a new item arrives in to do because that is where new items start. Moving one that already exists is the thing nobody but a hook does.
+**In the fleet, columns are written by hooks and never by an agent.** Three hooks cover every transition in the table above, each calling the `board` binary against the memory tree. So do not move an item, do not ask for one to be moved, and do not report that you moved one. The only thing you contribute is a correctly formatted handoff, because that is what the hook reads. An agent body or a run that tries to update a state is wrong even when the state it wants is correct. Filing a new issue is a different act from writing a column: a new item arrives in to do because that is where new items start. Moving one that already exists is the thing nobody but a hook does.
 
 A comment ending in a `[Cut to fit a board comment ...]` line names a file under `~/.local/state/claudecode-agents/archives/<session-id>/` on the human's machine: that is the whole comment, written by the hook at the moment it cut it, and it is the only copy of the part the card is missing.
 
@@ -53,7 +53,7 @@ Hooks write the columns, but nothing tells a hook which issue a subagent is work
 **The binding is the session, set at launch.** `SubagentStart` receives the agent's identity and nothing else - no spawn prompt under any name - so a line in the prompt cannot reach it:
 
 ```sh
-CLAUDECODE_AGENTS_BOARD_PAGE_ID=RZE-123 \
+CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12 \
   claude --agent claudecode-agents:lead
 ```
 
@@ -64,15 +64,15 @@ Every spawn in that session belongs to that item. Work on an unrelated item star
 **The `Board-Item:` line is still worth writing, as context for the agent.** It tells the agent which issue it is working against so it can fetch it; it is not a hook transport, and it never was. Do not describe it as one.
 
 ```
-Board-Item: RZE-123
+Board-Item: BD-12
 ```
 
-If a future runtime does send the spawn prompt to `SubagentStart`, the hook already reads it, and this is the format it accepts, as `hooks/lib/linear.sh` parses it:
+If a future runtime does send the spawn prompt to `SubagentStart`, the hook already reads it, and this is the format it accepts, as `hooks/lib/board.sh` parses it:
 
 - The first matching line wins. Later ones are ignored, so one line per spawn.
 - The label is case-insensitive and may be indented, and a leading `- ` is tolerated so the line survives being written as a list item. Nothing else may precede it on the line.
 - The value is the first whitespace-separated token after the colon. Anything after it on that line is discarded, so do not append a title or a note.
-- The value may be an issue identifier in any case (`rze-123` resolves as `RZE-123`), the issue URL pasted straight out of Linear (the identifier is read from the path and the title slug is ignored), or the issue's UUID, dashed or not.
+- The value may be an item identifier in any case (`bd-12` resolves as `BD-12`), a sub-task id (`BD-12.3`), or the task file's path as the CLI or the web UI hands it back.
 - A value in none of those shapes is not a ref. The line is then treated as absent, silently.
 
 If you are the agent receiving the line, use it to fetch the issue you are working against; never treat it as permission to move a state. Columns belong to the hooks.
@@ -95,7 +95,7 @@ A false blocker is not free. The queue is read out to the human twice a day, and
 
 ## Done, and the outcome
 
-There is no success column. Done means the run finished and its tests passed, and nothing more. Whether the work was any good is recorded once the answer is known - usually later and often by the human - as an outcome label on the issue: `outcome/shipped`, `outcome/abandoned` or `outcome/superseded`. Linear has no free-form fields on an issue, and a label is queryable where a comment is not.
+There is no success column. Done means the run finished and its tests passed, and nothing more. Whether the work was any good is recorded once the answer is known - usually later and often by the human - as an outcome label on the issue: `outcome/shipped`, `outcome/abandoned` or `outcome/superseded`. A label is queryable where a comment is not.
 
 So an item that turns out to have been the wrong idea is done with `outcome/abandoned`, not dragged back into to do. Replacement work is a new issue, and the old one is `outcome/superseded`. A second terminal column is exactly where items go to be stranded, which is why there is not one.
 
@@ -103,8 +103,25 @@ So an item that turns out to have been the wrong idea is done with `outcome/aban
 
 Title the issue as the change, in the imperative, in the glossary's words - "Rotate refresh tokens on reuse", not "refresh token stuff" and not "Investigate the auth epic". One item, one outcome. If an issue needs two answers to close, it is two issues or a parent with sub-issues.
 
-Every issue is in a project, because an issue with no project is invisible in every view that matters. A label naming the repo (`claudecode-agents`, `opencode-agents`) goes on the project, and on an issue only when the project spans repos. A milestone is set only when there is a real date or deliverable, not to express urgency.
+Every issue is in a project, because an issue with no project is invisible in every view that matters. The project is one of the names in the config's list, and the lead adds a name there before filing the first item under it. A label naming the repo (`claudecode-agents`, `opencode-agents`) goes on the project, and on an issue only when the project spans repos. A milestone is set only when there is a real date or deliverable, not to express urgency.
 
 Link `docs/specs/<issue>.md` and `docs/plans/<issue>.md` on the issue rather than pasting their contents into it. The repo is the source of truth for both and a copy on the issue goes stale silently.
 
 Add comments, do not rewrite descriptions. The history of an issue is how a blocked item is understood a week later, and an edited description destroys it. Never delete an issue - abandon it.
+
+## The CLI
+
+Every write goes through the `board` binary, reached by the shim at `${CLAUDE_PLUGIN_ROOT}/board/board.sh`, against the root in `CLAUDECODE_AGENTS_BOARD_ROOT` (default `$HOME/.memory`). This table exists rather than a pointer at the tool because nested `--help` fell through in the upstream tool the package was carried from, so "run `board task create --help`" was not an answer; the carried CLI does answer it, but a machine that has not built the binary still has to be able to read the flags here.
+
+| Command | Flags |
+|---|---|
+| `board task create <title>` | `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--priority p`, `--project name`, `--milestone m`, `-p/--parent id`, `--dep id`, `--ac text`, `--plan text`, `--notes text`, `--json`, `--plain` |
+| `board task edit <id>` | `-t/--title text`, `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--add-label l`, `--remove-label l`, `--priority p`, `--project name`, `--milestone m`, `--dep id`, `--ref text`, `--ac text`, `--check-ac n`, `--uncheck-ac n`, `--remove-ac n`, `--plan text`, `--append-plan text`, `--notes text`, `--append-notes text`, `--comment text` (needs `--comment-author @name`), `--final-summary text`, `--json`, `--plain` |
+| `board task view <id>` | `--json`, `--plain` |
+| `board task list` | `--status s`, `--project p`, `--assignee a`, `--labels l`, `--search q`, `--limit n`, `--json`, `--plain` |
+| `board task search <query>` | `--type t`, `--limit n`, `--json`, `--plain` |
+| `board export` | none - the whole board as a markdown table on stdout |
+| `board mcp` | none - the MCP server on stdio |
+| `board serve` | `--port n` (default 6420), bound to `127.0.0.1` |
+
+`--status`, `--dep`, `--ac`, `--check-ac`, `--uncheck-ac`, `--remove-ac`, `--ref`, `--append-plan`, `--append-notes` and `--comment` repeat; `-a` and `-l` take a comma-separated list or repeat. `--json` returns a versioned document whose `kind` is `task-view`, `task-list` or `search`, and a comment's text is its `body` field. There is no `--cwd` and no walk up from the working directory: the root comes from the environment variable alone.

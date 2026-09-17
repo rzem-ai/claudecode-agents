@@ -1,5 +1,5 @@
 ---
-description: Preflight the fleet in this project - plugin, agents, settings, skeleton - check or set up the Linear board and state its conventions, then take the first idea and start the spec pipeline on it
+description: Preflight the fleet in this project - plugin, agents, settings, skeleton - check or set up the board and state its conventions, then take the first idea and start the spec pipeline on it
 argument-hint: [the idea, in a sentence or a brain dump]
 ---
 
@@ -14,31 +14,33 @@ Check each of these, collecting results rather than stopping at the first failur
 3. **Skeleton.** `CLAUDE.md` exists at the project root and contains no `<FILL: ...>` markers. A marker left in place is a line the session reads literally on every turn, so surviving markers are a failure, not a note.
 4. **Glossary rule.** `.claude/rules/glossary.md` exists.
 5. **Work directories.** `docs/specs/` and `docs/plans/` exist.
-6. **Board.** The full check-and-setup is its own step below; here just note whether the Linear tools are available at all. No Linear connector means no board, which is fine and is not a failure.
+6. **Board.** The full check-and-setup is its own step below; here just note whether the board binary answers at all - `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version`. No binary means no board, which is fine and is not a failure.
 
 If anything failed: report every failure with its one-line fix (`/claudecode-agents:init` for missing skeleton pieces, restart-and-trust for a plugin or agent problem, edit the marker for a surviving `<FILL: ...>`), and stop. Do not start work on a red preflight.
 
 ## Board
 
-Run this step only when the Linear tools are available. Read the `board` skill first; it is the contract this step is verifying. No board is a legitimate outcome throughout - most work is not board work, and the human declining any part of this is a note in the report, never a failure.
+Run this step only when `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version` succeeds. On a machine where the binary has never been built it will not, and that is a legitimate outcome: say so and move on. Read the `board` skill first; it is the contract this step is verifying. No board is a legitimate outcome throughout - most work is not board work, and the human declining any part of this is a note in the report, never a failure.
 
-**Check.** Resolve the workspace and its team, then verify the pieces the fleet leans on:
+**Check.** The board is a directory of markdown files under the memory tree, so everything here is a file read. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`:
 
-- The team's workflow states cover the five columns - `To do`, `Doing`, `Blocked`, `Blocked by human`, `Done`. The hooks match state names ignoring case and spaces, so `Todo` satisfies `To do`; anything further apart needs either a rename in Linear or a `BOARD_COL_*` override in `~/.config/claudecode-agents/board.env`, and the two fixes are not equivalent - the override leaves every other tool seeing the odd name. `Blocked` and `Blocked by human` are the ones a team usually lacks.
-- A Linear project exists for this repo. Match by name against the repo, or by a label naming it.
-- The outcome labels `outcome/shipped`, `outcome/abandoned` and `outcome/superseded` exist on the team.
+- `board/config.yml` exists under that root. If it does not, the installer has not run on this machine; say that and stop the step. Do not write the file yourself - that is the installer's job, and guessing at it writes a board the other three machines will conflict with.
+- Its `statuses` are the five the fleet uses, spelled `To Do`, `Doing`, `Blocked`, `Blocked by human`, `Done`. The hooks match them ignoring case, so a difference in case is not a failure; a different word is, and the fix is the config rather than a `BOARD_COL_*` override in `~/.config/claudecode-agents/board.env` - the override leaves every other reader seeing the odd name.
+- This repo's project name is in the config's `projects` list. Match by name against the repo.
+- Its `labels` carry `outcome/shipped`, `outcome/abandoned` and `outcome/superseded`.
 
-**Setup.** Say what is missing and ask the human before creating anything - these are writes to their workspace. On a yes: create the project for this repo (with a label naming the repo) and the outcome labels. Workflow states are the one thing the Linear MCP cannot create - if `Blocked` or `Blocked by human` is missing, hand the human the exact instruction instead: add both in the team's workflow settings with the `started` type, since an item in either is picked up, not waiting to start.
+**Setup.** Say what is missing and ask the human before changing anything - the config is one file on a memory tree four machines share. On a yes to adding this repo's project: add the name to `projects` in `board/config.yml`, then commit the memory tree with a `git -C "$CLAUDECODE_AGENTS_BOARD_ROOT"` add and commit. The memory watcher may commit it first, which is fine; what matters is that the change is committed rather than left loose in the tree, because an uncommitted config edit reaches no other machine.
 
-**State the conventions.** End the board section by saying, concretely for this workspace, what the fleet will use - so the session and the human agree before the first issue is filed:
+**State the conventions.** End the board section by saying, concretely, what the fleet will use - so the session and the human agree before the first item is filed:
 
-- the team and its key (which is what an issue ref like `RZE-123` carries),
-- the project this repo's issues go in,
-- the five column names as this team spells them, and any `BOARD_COL_*` override that implies,
-- labels: the repo label on the project, `outcome/*` on issues at close, nothing else load-bearing,
-- and the binding reminder: a board session launches with `CLAUDECODE_AGENTS_BOARD_PAGE_ID=<issue ref>`, and only a task subject carrying `[board:<issue ref>]` closes an issue.
+- the board root, and that the items are the files under `board/tasks/` in it,
+- the prefix `BD`, so an item is `BD-12` and a sub-item `BD-12.1`,
+- the five status names as the config spells them,
+- the project this repo's items go in, as it appears in the config's list,
+- labels: `outcome/shipped`, `outcome/abandoned` and `outcome/superseded` on an item at close, nothing else load-bearing,
+- and the binding reminder: a board session launches with `CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12`, and only a task subject carrying `[board:BD-12]` closes an item.
 
-**What this step cannot do, said out loud.** The hooks authenticate with their own API key at `~/.config/claudecode-agents/linear.token`, which every agent is denied by design - so this step can never test that key, and a board green here can still fail in the hooks. End with the one manual check: the key file exists at that path with mode 600 (rendered by `scripts/install-home.sh`). A `no board item` or HTTP-error line in `~/.local/state/claudecode-agents/log/hooks.log` after the first real spawn is the symptom of it missing.
+**What this step cannot do, said out loud.** It can see the shim answer, but not whether the binary that shim found is the one this plugin version expects. The binary is built into `~/.local/bin/board` by `scripts/install-home.sh` and never committed, so a plugin update reaches a machine long before a rebuild does. End with the one manual check: `~/.local/bin/board --version` against the `version` in `${CLAUDE_PLUGIN_ROOT}/board/package.json`. If they differ, re-run the installer. A `board shim missing at ...` line, the shim's own `board: no binary at ~/.local/bin/board ...` line, or a `board <cmd> failed (exit N): ...` line in `~/.local/state/claudecode-agents/log/hooks.log` after the first real spawn is the symptom of a board the hooks cannot reach.
 
 ## The idea
 

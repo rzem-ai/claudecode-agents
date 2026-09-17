@@ -3,7 +3,7 @@
   "name": "claudecode-agents",
   "displayName": "Claude Code Agents",
   "version": "0.16.0",
-  "description": "A role-shaped subagent fleet: ten agents, the skills they preload, the hooks that keep a Linear board honest, and the workflows that organise multi-phase work.",
+  "description": "A role-shaped subagent fleet: ten agents, the skills they preload, the hooks that keep the board honest, the board itself, and the workflows that organise multi-phase work.",
   "author": {
     "name": "Alex",
     "email": "alex@rzem.com",
@@ -18,6 +18,6 @@
     "workflows",
     "hooks",
     "fleet",
-    "linear"
+    "board"
   ]
 }

@@ -1,6 +1,6 @@
 # Hooks
 
-The machinery that writes the Linear board and enforces per-agent tool scoping. Four hooks, one shared library, no agent ever asked to remember anything.
+The machinery that writes the board and enforces per-agent tool scoping. Four hooks, one shared library, no agent ever asked to remember anything.
 
 | File | Event | What it does |
 |---|---|---|
@@ -8,7 +8,7 @@ The machinery that writes the Linear board and enforces per-agent tool scoping. 
 | `board-subagent-stop.sh` | `SubagentStop` | **Blocked** on failure or cancellation, **Blocked by human** on a `Blocker:` line, a comment lifted from the handoff on every outcome, and the handoff-format check. Matched to the fleet agents only |
 | `board-task-completed.sh` | `TaskCompleted` | Tests pass, **Done**. Tests fail, **Blocked** with the failure as a comment, and exit 2 |
 | `enforce-agent-scope.sh` | `PreToolUse` | Denies tool calls that violate an agent's own Invariants |
-| `lib/linear.sh` | - | Token handling, the Linear GraphQL calls, state files, issue-ref parsing |
+| `lib/board.sh` | - | The calls to the `board` binary, state files, item-ref parsing |
 | `hooks.json` | - | Registers the four above with Claude Code |
 
 Board writes are section 7 of the plan. `permissions.deny` is session-scoped, so `enforce-agent-scope.sh` is the per-agent half that settings cannot express; it is an addition to the plan, approved separately.
@@ -24,11 +24,11 @@ This is the part the plan left open. It says the hook "is expected to know the i
 **A board session is bound to one item at launch**, by environment variable:
 
 ```sh
-CLAUDECODE_AGENTS_BOARD_PAGE_ID=RZE-123 \
+CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12 \
   claude --agent claudecode-agents:lead
 ```
 
-The value is a Linear issue reference in any of the shapes a human has in hand: the identifier (`RZE-123`, any case), the issue URL copied straight out of Linear, or the issue's UUID, dashed or not. `SubagentStart` normalises it - identifier uppercased, UUID re-dashed lowercase - and records it in a state file keyed by `session_id` and `agent_id`; `SubagentStop` reads that file back.
+The value is a board item reference in either of the shapes a human has in hand: the identifier (`BD-12`, or a sub-item `BD-12.3`, any case), or the task file's path under `board/tasks/` as the CLI and the web UI hand it back. `SubagentStart` normalises it - the identifier uppercased, a path reduced to the identifier in its filename - and records it in a state file keyed by `session_id` and `agent_id`; `SubagentStop` reads that file back.
 
 This is narrower than the convention it replaces, and it should not be sold as the same thing: all delegated work in that session belongs to that one item, so unrelated work starts in an unbound session. An unbound session moves no column, logs one line saying so, and exits 0 - which is also the right behaviour for the `scout` you spawned to answer a question. Most spawns are not board items.
 
@@ -39,8 +39,8 @@ Restoring per-agent binding needs a supported correlation between the Agent tool
 ### What must be wired up
 
 1. ~~The lead's body, or the `board` skill, must tell the lead to emit that line.~~ Done, in both: `agents/lead.md` step 6 carries the rule and `skills/board/SKILL.md`, "Telling the hooks which item", carries the full convention. Neither is a file this layer owns, so if either is rewritten without that content, every board write goes back to being a no-op and the log fills with "no board item" lines.
-2. ~~`scripts/install-home.sh` must render the hooks' API token at mode 600 (plan section 12).~~ Done; the file is `~/.config/claudecode-agents/linear.token`, a Linear personal API key. (Its Notion predecessor was rendered as `notion-token` with a hyphen until 8 September 2026, which meant a correctly installed machine never had a token where the lib looked for one - the dot in the name is load-bearing.)
-3. The team's workflow states need to cover `To do`, `Doing`, `Blocked`, `Blocked by human` and `Done`. Matching ignores case and spaces, so a team's `Todo` satisfies `To do`; anything further apart is a rename in Linear or a `BOARD_COL_*` override in `board.env` (below). `Blocked` and `Blocked by human` are the two a team usually has to add, with the `started` type.
+2. ~~`scripts/install-home.sh` must render the hooks' API token at mode 600 (plan section 12).~~ Retired, September 2026. The board is a directory of files in the memory tree and there is no endpoint to authenticate against, so no hook reads a token and the installer renders none. What it must do instead is build the binary into `~/.local/bin/board`; see "What breaks them".
+3. The `statuses` list in `board/config.yml` needs to cover `To Do`, `Doing`, `Blocked`, `Blocked by human` and `Done`. The `BOARD_COL_*` defaults below are that list character for character, so a tree the installer wrote needs no configuration; a tree spelling one differently is a config edit, or an override in `board.env` (below) where the config cannot be changed.
 
 ### The fallbacks, in order
 
@@ -77,11 +77,11 @@ Directories are 0700 and files 0600. Nothing here is secret, but nothing here is
 
 ## Configuration
 
-Everything has a default. `~/.config/claudecode-agents/board.env` overrides them and is sourced if it exists - same 0700 directory as the token, so it is already out of reach of every agent via `permissions.deny`.
+Everything has a default. `~/.config/claudecode-agents/board.env` overrides them and is sourced if it exists - a 0700 directory already out of reach of every agent via `permissions.deny`.
 
 ```sh
 # ~/.config/claudecode-agents/board.env
-BOARD_COL_TODO="To do"
+BOARD_COL_TODO="To Do"
 BOARD_COL_DOING=Doing
 BOARD_COL_BLOCKED=Blocked
 BOARD_COL_BLOCKED_HUMAN="Blocked by human"
@@ -96,12 +96,12 @@ CLAUDECODE_AGENTS_TEST_STATUS_MAX_AGE=3600
 CLAUDECODE_AGENTS_REPO=""               # the claudecode-agents working copy, for fleet-steward
 ```
 
-A column is a Linear workflow state, and a state move is two GraphQL calls: resolve the issue and its team's states, then `issueUpdate` with the state's UUID. State names are matched ignoring case and spaces, so the defaults find a conventionally named team without configuration; `BOARD_COL_*` covers the rest. GraphQL delivers most failures as an `errors` array inside a 200, so the lib checks the body on every call and never trusts the HTTP code alone.
+A column is a status in `board/config.yml`, and a move is one `board task edit <id> -s <status>` against the memory tree, preceded by a `board task view <id> --json` that resolves the identifier and confirms the item exists. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`, and `lib/board.sh` exports it rather than inheriting it, so a hook fired inside a worktree cannot be pointed at that worktree. The binary is reached through one shim, `board/board.sh` in the plugin, which tries `~/.local/bin/board`, then `bin/board` beside itself, then `bun src/cli.ts`. A failure arrives as an exit code with its own stderr rather than an errors array smuggled inside a 200, so there is no body to second-guess: a non-zero exit is logged as `board <cmd> failed (exit N): ...` and swallowed.
 
 Two escape hatches:
 
 - `CLAUDECODE_AGENTS_BOARD=off`, or `touch ~/.local/state/claudecode-agents/disabled`, turns every board write into a log line. The test gate and the handoff check still run.
-- `BOARD_DRY_RUN=1` logs what would have been written without calling Linear, and prints the comment it would have posted to stderr in full rather than first line only, so a cut comment can be read as well as counted. This is how the tests below work. A dry run still writes an archive when a comment is cut, because a note naming a file that was never written is the bug this fixed.
+- `BOARD_DRY_RUN=1` logs what would have been written without calling the binary, and prints the comment it would have posted to stderr in full rather than first line only, so a cut comment can be read as well as counted. This is how the tests below work. A dry run still writes an archive when a comment is cut, because a note naming a file that was never written is the bug this fixed.
 
 ## What the card says
 
@@ -127,9 +127,9 @@ Three things worth knowing:
 
 ### Comment length
 
-A Linear comment is one markdown body, no chunked rich-text array, so the cap here is for the reader rather than the API: a card comment is a summary, and the whole text of a long run belongs in the archive, not on the card.
+A comment is one markdown body in the task file and the board would happily store the lot, so the cap here is for the reader rather than the backend: a card comment is a summary, and the whole text of a long run belongs in the archive, not on the card.
 
-`linear_comment` cuts to `BOARD_COMMENT_MAX_CHARS` (default 8000), with `BOARD_COMMENT_HARD_MAX` clamping an over-generous `board.env` value. The cut happens inside `jq`, which counts Unicode codepoints, so a multi-byte character is never split in half. No comment is ever posted empty.
+`board_cap_comment` cuts to `BOARD_COMMENT_MAX_CHARS` (default 8000), with `BOARD_COMMENT_HARD_MAX` clamping an over-generous `board.env` value. The cut happens inside `jq`, which counts Unicode codepoints, so a multi-byte character is never split in half. No comment is ever posted empty.
 
 ### Where the overflow goes
 
@@ -155,7 +155,7 @@ Four things it does deliberately:
 - **Fails soft, like every other board write.** If the directory cannot be made or the file cannot be written, the reason is logged, the note says the overflow was dropped and could not be archived, the cut comment still goes on the card, and the hook still exits 0. Archiving is not a new way to break a session and it is not a third exit 2.
 - **Writes nothing when the board is off.** `CLAUDECODE_AGENTS_BOARD=off` posts no comment, so there is no note for an archive to be the rest of.
 
-`TaskCompleted` is covered by the same code, because the archiving lives in `linear_comment` and every comment goes through it. Its own comment cannot reach the default cap - the test detail is at most fifteen lines cut to 200 characters each, so about 3KB with the headline - and it will only ever cut if `board.env` lowers `BOARD_COMMENT_MAX_CHARS`. It labels its run anyway, so if that day comes the archive says which session and which verdict rather than nothing.
+`TaskCompleted` is covered by the same code, because the archiving lives in `board_cap_comment` and every comment goes through it. Its own comment cannot reach the default cap - the test detail is at most fifteen lines cut to 200 characters each, so about 3KB with the headline - and it will only ever cut if `board.env` lowers `BOARD_COMMENT_MAX_CHARS`. It labels its run anyway, so if that day comes the archive says which session and which verdict rather than nothing.
 
 Nothing prunes the archives and nothing backs them up. A run worth keeping permanently gets promoted into the repo by a human; the `compound` skill says where.
 
@@ -270,26 +270,25 @@ This hook **fails open**. Bad input, a missing `jq`, an unexpected error: it log
 
 ## Security
 
-- The token is read from `~/.config/claudecode-agents/linear.token` (mode 600), a Linear personal API key rendered once by `scripts/install-home.sh`. **No hook ever calls `op`.** Plan section 12 is explicit: it adds latency to every subagent start and stop, and a locked `op` silently stops the board updating.
-- The token never reaches a command line. `curl` is driven from a `--config` file written inside a 0700 temp directory and deleted immediately, so the Authorization header never appears in `ps` output. Passing it as `-H` would.
-- Nothing echoes it. `lib/linear.sh` runs `set +x` on load, API error text is passed through a redaction filter (anything `lin_api_`/`lin_oauth_`-shaped) before it is logged, and `LINEAR_TOKEN` is cleared after each write.
-- The token file's mode is checked and a warning logged if it is not 600 or 400.
-- `board.env` is sourced, which is code execution. It lives in the same 0700 directory as the token, which `permissions.deny` and the sandbox `denyRead`/`denyWrite` lists already keep away from every agent. If that directory is writable by something else, the token was gone first anyway.
+- **There is no secret here any more.** The board is files in the memory tree reached by a local binary, so no hook reads a token, the installer renders none, and no hook makes a network call. **No hook ever calls `op`.** Plan section 12 is explicit about why: it adds latency to every subagent start and stop, and a locked `op` silently stops the board updating.
+- `lib/board.sh` still runs `set +x` on load. Nothing here is secret, but a traced hook floods the transcript with a hundred lines nobody asked for.
+- The board root is exported by the library rather than inherited, so a stray `CLAUDECODE_AGENTS_BOARD_ROOT` in a worktree's environment cannot redirect a write into that worktree. The binary has no walk up from `cwd` and no `--cwd` flag to reach one either.
+- `board.env` is sourced, which is code execution. It lives in a 0700 directory that `permissions.deny` and the sandbox `denyRead`/`denyWrite` lists already keep away from every agent. If something else can write that directory, the machine has larger problems than the board.
 
 ## Failure behaviour
 
-Every board write fails soft: log to stderr, exit 0. Linear being down, the token being missing, `jq` not being installed, the issue ref being wrong - none of it stops a session.
+Every board write fails soft: log to stderr, exit 0. The binary being unbuilt, the memory tree being absent, `jq` not being installed, the item ref being wrong - none of it stops a session.
 
 Exactly two things exit 2, and each for its own reason:
 
 1. `SubagentStop`, when a successful run's handoff does not parse.
 2. `TaskCompleted`, when the tests fail (or when the gate is strict and no result is available).
 
-Neither exits 2 because Linear was unreachable. That separation is the point: a board that cannot be written is an inconvenience, a coder marking itself done on a red suite is not.
+Neither exits 2 because the board was unreachable. That separation is the point: a board that cannot be written is an inconvenience, a coder marking itself done on a red suite is not.
 
 ## Testing
 
-The scripts read JSON on stdin and are ordinary shell, so drive them by hand. `BOARD_DRY_RUN=1` keeps everything off the network, and pointing the config and state directories somewhere disposable keeps it off your real board.
+The scripts read JSON on stdin and are ordinary shell, so drive them by hand. `BOARD_DRY_RUN=1` keeps the binary from being called at all, and pointing the config and state directories somewhere disposable keeps the rest off your real board. `CLAUDECODE_AGENTS_BOARD_ROOT` pointed at a throwaway tree is the belt to that braces if you want the calls to happen for real.
 
 ```sh
 cd claudecode-agents/hooks
@@ -297,12 +296,10 @@ export CLAUDECODE_AGENTS_CONFIG_DIR=/tmp/ca/config
 export CLAUDECODE_AGENTS_STATE_DIR=/tmp/ca/state
 export BOARD_DRY_RUN=1
 mkdir -p "$CLAUDECODE_AGENTS_CONFIG_DIR"
-printf 'not-a-real-token\n' > "$CLAUDECODE_AGENTS_CONFIG_DIR/linear.token"
-chmod 600 "$CLAUDECODE_AGENTS_CONFIG_DIR/linear.token"
 
 # 1. spawn: binds the agent and moves the item to Doing
 jq -n '{session_id:"s1",agent_id:"a1",agent_type:"coder",
-        instructions:"Board-Item: 24f1a3b9c1d24e6f8a0b1c2d3e4f5061\nGo."}' \
+        instructions:"Board-Item: BD-12\nGo."}' \
   | ./board-subagent-start.sh
 
 # 2. stop, with a blocker: Blocked by human, plus a comment
@@ -328,7 +325,7 @@ jq -n '{session_id:"s1",agent_id:"a1",agent_type:"coder",status:"success",
 
 # 4. the test gate, failing: Blocked, then exit 2
 CLAUDECODE_AGENTS_TEST_COMMAND='exit 1' jq -n '{session_id:"s1",cwd:"/tmp",task_id:"t1",
-        task_subject:"Wire it [board:24f1a3b9c1d24e6f8a0b1c2d3e4f5061]"}' > /tmp/ca/in.json
+        task_subject:"Wire it [board:BD-12]"}' > /tmp/ca/in.json
 CLAUDECODE_AGENTS_TEST_COMMAND='exit 1' ./board-task-completed.sh < /tmp/ca/in.json; echo "exit $?"
 
 # 5. scoping: a deny prints JSON, an allow prints nothing
@@ -346,13 +343,14 @@ To watch the real thing, run Claude Code with `--debug` - hook stderr goes to th
 
 ## What breaks them
 
-- **`jq` or `curl` missing.** Both are checked and named in the log. The board stops updating; the session does not stop. macOS has `curl` but not `jq`.
+- **`jq` missing.** It is checked and named in the log. The board stops updating; the session does not stop. macOS ships without it.
 - **The lead not emitting `Board-Item:`.** Everything runs, nothing moves. This is the most likely failure and the log line for it is explicit.
-- **Column names that do not match.** The log says the team has no workflow state matching the column. Add the state in Linear or point `BOARD_COL_*` in `board.env` at the name the team uses; do not rename the fleet's columns to match the code.
-- **A key without workspace access.** Linear answers with an authentication error in the `errors` array, which the log carries after redaction. A personal API key sees what its user sees, so there is no share-the-database step - if the user can open the issue, the key can move it.
+- **Column names that do not match.** The log carries the binary's own complaint that no such status exists. Fix `statuses` in `board/config.yml`, or point `BOARD_COL_*` in `board.env` at the name that tree uses; do not rename the fleet's columns to match the code.
+- **No binary.** The library logs `board shim missing at <path>` when the shim itself is not there, and the shim exits 127 with `board: no binary at ~/.local/bin/board or .../bin/board and no bun on PATH` when it is but nothing it looks for is. Re-run `scripts/install-home.sh`; the binary is built on each machine and never committed.
+- **No board under the root.** The binary expects `board/config.yml` under `CLAUDECODE_AGENTS_BOARD_ROOT` and says so on stderr, which reaches the log as a `board <cmd> failed (exit N): ...` line.
 - **Renaming or moving a script** without updating `hooks.json`. The paths there are literal.
 - **Dropping the execute bit.** `git update-index --chmod=+x` if it happens.
-- **`set -x` anywhere in these scripts.** It would print the token. `lib/linear.sh` disables it on load; do not turn it back on.
+- **`set -x` anywhere in these scripts.** It buries the log in noise. `lib/board.sh` disables it on load; do not turn it back on.
 - **Editing an agent's Invariants without editing `enforce-agent-scope.sh`.** The deny messages quote those invariants verbatim. If they drift apart, an agent gets told off for breaking a rule its body no longer states. The `migration-checklist` run is the place to catch that.
 
 ## Things the plan did not specify
@@ -360,7 +358,7 @@ To watch the real thing, run Claude Code with `--debug` - hook stderr goes to th
 Recorded here rather than discovered later. Every one of them is a decision this layer had to make on its own:
 
 1. **The `Board-Item:` spawn-prompt convention**, the `[board:<id>]` task-title marker, `CLAUDECODE_AGENTS_BOARD_PAGE_ID` and the state-file layout. The plan says the hook "is expected to know the item from the spawn context" and stops there.
-2. **`board.env` and every default in it.** The plan never names the workflow states or how the column labels are spelled in Linear.
+2. **`board.env` and every default in it.** The plan never names the statuses or how the column labels are spelled in the board's config.
 3. **How "tests pass" is decided**, the lenient default, the marker file and its staleness window. The plan asserts the gate and never says what it reads.
 4. **A comment on the card at every transition**, and where each one's text comes from. The plan specifies a comment only for the `Blocker:` path. A card that says nothing but which column it is in is a status light, not a board.
 5. **Where the overflow of a cut comment goes.** The plan says nothing about comment length, let alone about the part that does not fit. This layer's answer is one file per cut comment under the state directory, at `archives/<session_id>/<stamp>-<agent>.md`, and the state directory rather than the working directory because a worktree agent's cwd does not survive its own session. See "What the card says" above; the handoff format was not touched to get it.
@@ -369,10 +367,10 @@ Recorded here rather than discovered later. Every one of them is a decision this
 8. **The handoff check runs on success only**, and tolerates preamble prose, which is unparsed. Everything else in the skill is enforced strictly, including the blank-line rule and where a typed line may appear. See above for why.
 9. **`cd`, `pwd`, `echo` and `true`** added to scout's Bash allowlist, and the quote-stripping and `2>/dev/null` softenings.
 10. **`fleet-steward`'s repo-root resolution** by walking up from the plugin directory, and the git verb list, which is read off its Invariants prose.
-11. **The GraphQL endpoint and its error shape.** The plan names neither; `LINEAR_API` and the errors-in-a-200 check are this layer's choice.
+11. **Which CLI calls a column move and a comment are made of**, and the ten-second timeout around each. The plan names the board and not the commands; `board task view --json`, `board task edit -s` and `board task edit --comment --comment-author` are this layer's choice, as is using the hook's own name (`@SubagentStop` and so on) as the comment author.
 12. **The `SubagentStop` matcher.** The plan gives the hook to every subagent. Scoping it to the ten fleet agents is this layer's decision, made because the workflows spawn `Plan` and `general-purpose` lanes that return JSON.
 13. **`reviewer` and `ui-designer` scoping rules**, including the read-only git allowlist both share and the install-verb matching that keeps `ui-designer` able to build and serve a prototype.
-14. **The comment length cap.** `BOARD_COMMENT_MAX_CHARS`, its default of 8000 and the `BOARD_COMMENT_HARD_MAX` clamp. Linear imposes no limit a card comment would meet, so where to cut is this layer's choice, made for the reader; see "Comment length" above.
+14. **The comment length cap.** `BOARD_COMMENT_MAX_CHARS`, its default of 8000 and the `BOARD_COMMENT_HARD_MAX` clamp. A task file imposes no limit a card comment would meet, so where to cut is this layer's choice, made for the reader; see "Comment length" above.
 15. **Field names - settled, September 2026.** This entry used to say the brief and the published examples disagreed, that the hooks read both spellings, and that someone should confirm which was real. Carrying both did not hedge the risk; it hid that *neither* was real.
 
 The docs pages truncate before the event sections, so the answer came from the zod schemas in the shipped CLI binary:

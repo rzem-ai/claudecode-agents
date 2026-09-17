@@ -1,6 +1,6 @@
 # claudecode-agents
 
-A personal Claude Code subagent fleet: ten role-shaped agents delegated to from a Claude Code session, the skills they share, the hooks that keep a Linear board honest, and the evals that catch a regression before a model release does. The claudecode-agents repo is a Claude Code plugin marketplace with one plugin, and it is the single source of truth - every machine and cloud session that runs the fleet gets it from here.
+A personal Claude Code subagent fleet: ten role-shaped agents delegated to from a Claude Code session, the skills they share, the hooks that keep the board honest, the board itself, and the evals that catch a regression before a model release does. The claudecode-agents repo is a Claude Code plugin marketplace with one plugin, and it is the single source of truth - every machine and cloud session that runs the fleet gets it from here.
 
 The agents are roles, not personas: disposable by design, with fresh context on every spawn and their memory on a server rather than in their heads. The fleet also maintains itself - a `fleet-steward` agent watches model releases and files PRs against the claudecode-agents repo, and most substantial changes here were produced by the fleet's own workflows, then reviewed the same way any other change would be.
 
@@ -25,7 +25,7 @@ Each body in [`claudecode-agents/agents/`](claudecode-agents/agents/) carries it
 
 **Every agent ends with the same handoff.** Four headings - Done, Not done, Unverified, Decisions needed - with typed lines under the last (`Blocker:`, `Propose item:`, `Propose memory:`), so the lead can merge a stack of handoffs without re-reading a stack of transcripts. The format is the `handoff` skill, preloaded everywhere and enforced by a hook.
 
-**Hooks write the board; agents never do.** `SubagentStart` moves a Linear issue to Doing, `SubagentStop` writes Blocked or Blocked by human (a `Blocker:` line in the handoff is what lands in the human queue), and `TaskCompleted` gates on tests before writing Done. A fourth hook, `enforce-agent-scope.sh`, denies at `PreToolUse` the tool calls each agent's own invariants forbid - the per-agent boundary that session-scoped permissions cannot express.
+**Hooks write the board; agents never do.** `SubagentStart` moves a board item to Doing, `SubagentStop` writes Blocked or Blocked by human (a `Blocker:` line in the handoff is what lands in the human queue), and `TaskCompleted` gates on tests before writing Done. A fourth hook, `enforce-agent-scope.sh`, denies at `PreToolUse` the tool calls each agent's own invariants forbid - the per-agent boundary that session-scoped permissions cannot express.
 
 **Workflows chain the roles.** `spec-to-plan`, `review-round` and `deep-research` in [`claudecode-agents/workflows/`](claudecode-agents/workflows/) run the multi-agent shapes deterministically instead of hoping the model sequences them.
 
@@ -72,7 +72,7 @@ Append `@<branch-or-tag>` to the claudecode-agents repo reference (`rzem-ai/clau
 
 **The command route.** With the plugin installed (either route above), `/claudecode-agents:init` inside a session does the whole per-project setup in one pass: it merges the three settings keys, copies the CLAUDE.md skeleton and the glossary rule into the project, creates `docs/specs/` and `docs/plans/`, then reads the repo and interviews you to fill every `<FILL: ...>` marker. Re-running it is safe - it skips what already exists and only offers to fill markers still present.
 
-Nothing init writes is live until the next session - settings, `CLAUDE.md` and the plugin itself all load at startup - so init ends by telling you to restart, trust the folder, and run `/claudecode-agents:kickoff`. Kickoff preflights the install (agents present, lead in charge, no markers left, skeleton and work directories in place), then checks the Linear board when the connector is there - the team's workflow states against the five columns, a project for the repo, the outcome labels - offers to create what the MCP can create (workflow states it cannot - those come with the exact manual instruction), asking before it writes to the workspace, and ends by stating the conventions: team, project, column names, labels, and the issue-ref binding. It cannot test the hooks' own API key, and says so. On a green preflight it takes the idea you typed after it - or asks for one - and starts the spec pipeline on it. On a red preflight it lists the fixes and stops; declining the board is never red.
+Nothing init writes is live until the next session - settings, `CLAUDE.md` and the plugin itself all load at startup - so init ends by telling you to restart, trust the folder, and run `/claudecode-agents:kickoff`. Kickoff preflights the install (agents present, lead in charge, no markers left, skeleton and work directories in place), then checks the board when the binary answers - `board/config.yml` under the board root, its five statuses, a project for the repo in its `projects` list, the outcome labels - offers to add the repo's project to the config and commit the memory tree, asking before it changes a file four machines share, and ends by stating the conventions: root, the `BD` prefix, status names, project, labels, and the item-ref binding. It cannot tell whether the binary on this machine is current, and says so. On a green preflight it takes the idea you typed after it - or asks for one - and starts the spec pipeline on it. On a red preflight it lists the fixes and stops; declining the board is never red.
 
 **Optional: the project skeleton by hand.** `claudecode-agents/templates/CLAUDE.md` is a project CLAUDE.md with `<FILL: ...>` markers for the things that differ per project, and `claudecode-agents/templates/rules/glossary.md` is the generated glossary rule it refers to. Copy both into the project (`CLAUDE.md` at the root, the rule under `.claude/rules/`) and fill the markers. Never edit the glossary rule by hand - it is generated from the `glossary` skill by `scripts/gen-glossary-rule.sh`.
 
@@ -100,9 +100,9 @@ It is safe to re-run. Unchanged files are left alone and the summary at the end 
 
 ### 3. Secrets and the board
 
-The board hooks read a Linear personal API key from `~/.config/claudecode-agents/linear.token` (directory mode 700, file mode 600). The agents cannot read that directory - it is in `permissions.deny` and the sandbox deny list - and only the hooks ever open it. Without the key the hooks log a `no token` line and leave the board alone; the agents themselves work fine, so a machine without Linear access is a working install.
+The board needs no secret at all. It is a directory of markdown files under the memory tree at `board/`, written by the plugin's own `board` binary, which the installer builds into `~/.local/bin/board`. The hooks make no network call and read no token; without the binary they log a `board shim missing` or a `board <cmd> failed` line and leave the board alone, and the agents themselves work fine, so a machine that has never built it is a working install.
 
-To render the token and the ten per-agent memory credentials from 1Password:
+To render the ten per-agent memory credentials from 1Password:
 
 ```bash
 eval "$(op signin)"                       # interactive; lab boxes export OP_SERVICE_ACCOUNT_TOKEN instead
@@ -111,12 +111,11 @@ scripts/install-home.sh --secrets-only    # or drop the flag to do files and sec
 
 The `op://` references at the top of `scripts/install-home.sh` are placeholders until the fleet vault exists. Edit that one block to point at the real vault, item and field; nothing else in the script should ever need changing. A secret that cannot be read is reported by reference, never by value, and the script exits non-zero so a missing one is not missed.
 
-To place the key by hand instead, create the directory at mode 700 and put the key in `linear.token` with an editor - not on a command line, where it lands in shell history - then `chmod 600` it.
-
 Knobs, all optional:
 
-- `~/.config/claudecode-agents/board.env` overrides the board's status property and column names (`BOARD_STATUS_PROPERTY`, `BOARD_COL_TODO`, `BOARD_COL_DOING`, `BOARD_COL_BLOCKED`, `BOARD_COL_BLOCKED_HUMAN`, `BOARD_COL_DONE`) if your board is not the default shape.
-- `CLAUDECODE_AGENTS_BOARD=off`, or an empty file at `~/.local/state/claudecode-agents/disabled`, switches board writes off without removing the token. `BOARD_DRY_RUN=1` logs what would be written instead of writing it.
+- `CLAUDECODE_AGENTS_BOARD_ROOT` points the hooks and the binary at a tree other than `$HOME/.memory`.
+- `~/.config/claudecode-agents/board.env` overrides the column names (`BOARD_COL_TODO`, `BOARD_COL_DOING`, `BOARD_COL_BLOCKED`, `BOARD_COL_BLOCKED_HUMAN`, `BOARD_COL_DONE`) if a tree's `board/config.yml` spells a status differently from the fleet's.
+- `CLAUDECODE_AGENTS_BOARD=off`, or an empty file at `~/.local/state/claudecode-agents/disabled`, switches board writes off without uninstalling anything. `BOARD_DRY_RUN=1` logs what would be written instead of writing it.
 - The three board hooks log to `~/.local/state/claudecode-agents/log/hooks.log` (and to stderr, so it shows in the transcript). Read that first when the board does not move. The scope hook logs to stderr only.
 
 ### Staying current
