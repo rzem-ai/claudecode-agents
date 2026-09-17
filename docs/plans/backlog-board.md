@@ -1048,7 +1048,7 @@ Expected: `BD-1`.
 
 - [ ] **Step 4: Wire the package into the check suite**
 
-In `evals/lib/check-all.sh`, add a step in the same style as the existing ones that runs, from `claudecode-agents/board`, `bunx tsc --noEmit` and `bun test --timeout=10000`, and skips with a named reason when `bun` is not on `PATH`. Run `evals/lib/check-all.sh 2>&1 | tee /tmp/check.log | tail -20`.
+In `evals/lib/check-all.sh`, add a step in the same style as the existing ones that runs, from `claudecode-agents/board`, `bunx tsc --noEmit`, a `bun build --target=bun src/cli.ts` bundle into a temp dir, and `bun test` on the five fleet-owned test files (`board-root`, `cli-board`, `cli-board-behaviour`, `no-git`, `serve-board`), and skips with a named reason when `bun` is not on `PATH`. The full upstream suite takes five minutes and `check-all.sh` must finish inside the two-minute shell timeout, so the step runs the full suite only when `CHECK_ALL_BOARD_FULL=1` is set (ruled during execution). Run `evals/lib/check-all.sh 2>&1 | tee /tmp/check.log | tail -20`.
 
 Expected: the board step is listed and passes; everything that passed before still passes.
 
