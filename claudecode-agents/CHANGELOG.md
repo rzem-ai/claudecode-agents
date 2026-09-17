@@ -10,6 +10,8 @@ The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the ca
 
 The board moves off a hosted tracker and into the memory tree, and the plugin starts shipping the board itself.
 
+- **The marketplace entry carries the release version.** `.claude-plugin/marketplace.json` pinned the plugin at 0.15.1 through two releases, so `claude plugin marketplace update` kept showing 0.15.1 whatever `plugin.json` said. The entry now reads 0.17.0, and `evals/lib/check-all.sh` gains a `versions` step that fails when the plugin manifest, the marketplace entry and the newest changelog release disagree.
+
 ### Added
 
 - **The plugin carries its own board.** `claudecode-agents/board/` is a trimmed, pinned copy of Backlog.md (MIT; origin, commit and removals are in `board/NOTICE.md`), built by `scripts/install-home.sh` into `~/.local/bin/board` and reached everywhere through one shim, `board/board.sh`, which tries the built binary, then `bin/board` beside itself, then `bun src/cli.ts`, and exits 127 with a one-line reason otherwise. The board is a directory of markdown files, one per item, under the memory tree at `board/` - `board/tasks/`, `board/docs/`, `board/milestones/` and `board/config.yml` - and the memory watcher now carries `board` as a scope, so a hook's write reaches the other three machines the way a memory does. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`, and the binary resolves it from that variable alone: no walk up from the working directory, so a hook fired inside a worktree can never write a board into that worktree. Carrying the source rather than installing it is the point - a hook that depends on a third-party binary's install state on four machines is a hook that will one day fail quietly.
