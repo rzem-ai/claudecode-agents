@@ -41,14 +41,17 @@ trap 'rm -rf "$TMP"' EXIT
 export CLAUDECODE_AGENTS_CONFIG_DIR="$TMP/config"
 export CLAUDECODE_AGENTS_STATE_DIR="$TMP/state"
 export CLAUDECODE_AGENTS_BOARD=off
+# The library defaults the board root to $HOME/.memory. Nothing offline here
+# ever spawns the binary, but the default is not something a test suite should
+# be one bug away from writing into: point it at the throwaway tree instead.
+export CLAUDECODE_AGENTS_BOARD_ROOT="$TMP/no-board"
 mkdir -p "$CLAUDECODE_AGENTS_CONFIG_DIR" "$CLAUDECODE_AGENTS_STATE_DIR"
 
-PAGE_A=11111111111111111111111111111111
-PAGE_B=22222222222222222222222222222222
-# The hooks normalise to the hyphenated form before logging, so assertions match
-# the resolved id rather than the text that happened to be in the task subject.
-PAGE_A_H=11111111-1111-1111-1111-111111111111
-PAGE_B_H=22222222-2222-2222-2222-222222222222
+# Board items are the plugin's own task ids, not UUIDs. The hooks uppercase a
+# ref before logging, so assertions match the resolved id rather than the text
+# that happened to be in the task subject.
+PAGE_A=BD-1
+PAGE_B=BD-2
 
 PASSED=0
 FAILED=0
@@ -85,33 +88,41 @@ printf '\nTaskCompleted: the documented subject field\n'
 run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship the refresh [board:$PAGE_A]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
-log_has "names board item $PAGE_A_H"; check task_subject-binds "a [board:] marker in task_subject resolves the item" $?
+log_has "names board item $PAGE_A"; check task_subject-binds "a [board:] marker in task_subject resolves the item" $?
 
 # The legacy names stay readable, so an older build is not broken by the fix.
 run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship the refresh [board:$PAGE_A]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_title:$s}')"
-log_has "names board item $PAGE_A_H"; check task_title-fallback "the legacy task_title is still read as a fallback" $?
+log_has "names board item $PAGE_A"; check task_title-fallback "the legacy task_title is still read as a fallback" $?
 
 # Subject wins when both are present and disagree.
 run_hook board-task-completed.sh \
     "$(jq -nc --arg a "Real [board:$PAGE_A]" --arg b "Stale [board:$PAGE_B]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$a,task_title:$b}')"
-log_has "names board item $PAGE_A_H" && ! log_has "$PAGE_B_H"; check subject-wins "task_subject wins over a conflicting task_title" $?
+log_has "names board item $PAGE_A" && ! log_has "$PAGE_B"; check subject-wins "task_subject wins over a conflicting task_title" $?
 
-# The board backend is Linear, so a ref is most often an identifier or an
-# issue URL, and both must normalise: the identifier uppercased, the URL to
-# the identifier in its path with the title slug ignored even when the slug
-# itself is identifier-shaped.
+# A ref is a BD id in any case, a sub-task id, or a task file path. A Linear
+# URL and a UUID were refs on the old board and are not refs now.
 run_hook board-task-completed.sh \
-    "$(jq -nc --arg s "Ship the refresh [board:rze-123]" --arg c "$TMP" \
+    "$(jq -nc --arg s "Ship the refresh [board:bd-12]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
-log_has "names board item RZE-123"; check identifier-binds "a Linear identifier in the marker resolves, uppercased" $?
+log_has "names board item BD-12"; check identifier-binds "a lower-case id resolves, uppercased" $?
+
+run_hook board-task-completed.sh \
+    "$(jq -nc --arg s "Ship [board:BD-12.3]" --arg c "$TMP" \
+        '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
+log_has "names board item BD-12.3"; check subtask-binds "a sub-task id resolves" $?
+
+run_hook board-task-completed.sh \
+    "$(jq -nc --arg s "Ship [board:/home/x/.memory/board/tasks/BD-12 - Ship-the-refresh.md]" --arg c "$TMP" \
+        '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
+log_has "names board item BD-12" && ! log_has "SHIP"; check path-binds "a task file path resolves to its id, not its title" $?
 
 run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship [board:https://linear.app/rzemai/issue/RZE-123/fix-thing-2]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
-log_has "names board item RZE-123" && ! log_has "THING-2"; check issue-url-binds "a Linear issue URL resolves to its identifier, not its slug" $?
+! log_has "names board item"; check url-is-not-a-ref "a Linear URL is no longer a ref" $?
 
 printf '\nTaskCompleted: only an explicit issue task closes an issue\n'
 
@@ -122,7 +133,7 @@ printf '%s\n' "$PAGE_A" > "$CLAUDECODE_AGENTS_STATE_DIR/sessions/s2/last-item"
 printf '%s\n' "$PAGE_B" > "$CLAUDECODE_AGENTS_STATE_DIR/sessions/s2/last-item"
 run_hook board-task-completed.sh \
     "$(jq -nc --arg c "$TMP" '{session_id:"s2",cwd:$c,task_id:"t2",task_subject:"Fix the parser"}')"
-! log_has "$PAGE_A_H" && ! log_has "$PAGE_B_H"; check unmarked-moves-nothing "an unmarked execution task moves no card" $?
+! log_has "$PAGE_A" && ! log_has "$PAGE_B"; check unmarked-moves-nothing "an unmarked execution task moves no card" $?
 log_has "no column moves"; check unmarked-explains "and says why, rather than failing silently" $?
 
 # The environment binding must not close an issue either. It says which item is
@@ -130,7 +141,7 @@ log_has "no column moves"; check unmarked-explains "and says why, rather than fa
 run_hook board-task-completed.sh \
     "$(CLAUDECODE_AGENTS_BOARD_PAGE_ID=$PAGE_A jq -nc --arg c "$TMP" \
         '{session_id:"s3",cwd:$c,task_id:"t3",task_subject:"Partial work"}')"
-! log_has "$PAGE_A_H"; check env-does-not-close "CLAUDECODE_AGENTS_BOARD_PAGE_ID alone does not close an issue" $?
+! log_has "$PAGE_A"; check env-does-not-close "CLAUDECODE_AGENTS_BOARD_PAGE_ID alone does not close an issue" $?
 
 printf '\nTaskCompleted: the gate tests the checkout that did the work\n'
 
@@ -183,7 +194,7 @@ printf '%s' '{"session_id":"s9","agent_id":"a2","agent_type":"claudecode-agents:
     | CLAUDECODE_AGENTS_BOARD_PAGE_ID="$PAGE_A" BOARD_LOG_FILE="$TMP/log.$$" \
       "$HOOKS/board-subagent-start.sh" >"$TMP/out" 2>"$TMP/err" || RC=$?
 LOG="$TMP/log.$$"
-log_has "picked up $PAGE_A_H"; check start-env-binds "an explicit session binding is recorded" $?
+log_has "picked up $PAGE_A"; check start-env-binds "an explicit session binding is recorded" $?
 
 printf '\nSubagentStop: no status field exists\n'
 
@@ -364,6 +375,51 @@ check commands-not-single-quoted "no command single-quotes the plugin-root place
 RC=0
 jq -r '.hooks[][].hooks[].command' "$HOOKS/hooks.json" | grep -qvF '${CLAUDE_PLUGIN_ROOT}' && RC=1
 check commands-use-plugin-root "every command locates its script by the plugin root" $RC
+
+printf '\nLive backend: the hooks move a real item through the binary\n'
+
+# Everything above proves the hooks read the right fields and decide the right
+# thing. None of it proves the decision reaches the board, because the board
+# call is exactly what CLAUDECODE_AGENTS_BOARD=off switches off. These three
+# cases run the binary against a throwaway root - never the memory tree - so a
+# shim that cannot be found, a status spelling the config does not hold, or a
+# comment flag the CLI has renamed is caught here rather than in a real run.
+SHIM="$REPO_ROOT/claudecode-agents/board/board.sh"
+if ! "$SHIM" --version >/dev/null 2>&1; then
+    printf '  skipped: board binary not resolvable (%s); build it with claudecode-agents/board/build.sh\n' "$SHIM"
+else
+    LIVE="$TMP/live"; mkdir -p "$LIVE/board"
+    printf 'project_name: "t"\ntask_prefix: "BD"\nstatuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]\ndefault_status: "To Do"\n' > "$LIVE/board/config.yml"
+    export CLAUDECODE_AGENTS_BOARD_ROOT="$LIVE"
+    export CLAUDECODE_AGENTS_BOARD=on
+    unset BOARD_DRY_RUN
+    ID="$("$SHIM" task create "Live item" --json | jq -r .task.id)"
+
+    # run_hook passes no environment, and SubagentStart's only supported binding
+    # is the variable, so it is exported around the call and taken away again.
+    export CLAUDECODE_AGENTS_BOARD_PAGE_ID="$ID"
+    run_hook board-subagent-start.sh \
+        "$(jq -nc --arg t "claudecode-agents:coder" \
+            '{session_id:"live",agent_id:"a1",agent_type:$t}')"
+    unset CLAUDECODE_AGENTS_BOARD_PAGE_ID
+    [ "$("$SHIM" task view "$ID" --json | jq -r .task.status)" = "Doing" ]; check live-start-doing "SubagentStart moves the item to Doing" $?
+
+    # No status field: the runtime does not send one (see the header), so the
+    # route to the human queue is a Blocker: line, and that is what is driven here.
+    run_hook board-subagent-stop.sh \
+        "$(jq -nc '{session_id:"live",agent_id:"a1",agent_type:"claudecode-agents:coder",
+                    stop_hook_active:false,agent_transcript_path:"/dev/null",
+                    last_assistant_message:"## Done\n- Moved a live item through the binary\n\n## Not done\n- None\n\n## Unverified\n- None\n\n## Decisions needed\n- Blocker: which key?\n"}')"
+    [ "$("$SHIM" task view "$ID" --json | jq -r .task.status)" = "Blocked by human" ]; check live-blocker "a Blocker: line moves the item to Blocked by human" $?
+
+    # The author is "@$HOOK", and HOOK is the hook's own name - SubagentStop,
+    # not the script's filename. The comment body is .body, not .content.
+    "$SHIM" task view "$ID" --json \
+        | jq -e '.task.comments[] | select(.author == "@SubagentStop") | select(.body | test("which key"))' >/dev/null
+    check live-comment "the blocker text lands as an authored comment" $?
+
+    export CLAUDECODE_AGENTS_BOARD=off
+fi
 
 printf '\n%s passed, %s failed\n' "$PASSED" "$FAILED"
 if [ "$FAILED" -ne 0 ]; then
