@@ -13,6 +13,9 @@
 #   roster-contract       every agent is known to the matcher, runner and evals
 #   workflow-logic        the workflow branches decide on evidence
 #   runner-gate           the eval runner fails when the run failed
+#   board                 the board package type-checks, bundles, and its
+#                         fleet-owned tests pass (CHECK_ALL_BOARD_FULL=1 for
+#                         the whole upstream suite, which takes about 5 min)
 #   glossary              the generated rule still matches the canonical skill
 #
 # Usage:  evals/lib/check-all.sh [-v]
@@ -59,6 +62,41 @@ run scope-hook-contract "$LIB_DIR/scope-hook-contract.sh"
 run roster-contract     "$LIB_DIR/roster-contract.sh"
 run workflow-logic      node "$LIB_DIR/workflow-logic.mjs"
 run runner-gate         "$LIB_DIR/runner-gate.sh"
+
+printf '\n=== board ===\n'
+if ! command -v bun >/dev/null 2>&1; then
+    printf 'board: skipped (bun is not on PATH)\n'
+else
+    # The five test files the fleet owns. The rest of the upstream suite takes
+    # about five minutes, and check-all.sh has to stay under two, so it runs
+    # only under CHECK_ALL_BOARD_FULL=1.
+    BOARD_TESTS=(
+        src/test/board-root.test.ts
+        src/test/cli-board.test.ts
+        src/test/cli-board-behaviour.test.ts
+        src/test/no-git.test.ts
+        src/test/serve-board.test.ts
+    )
+    BOARD_TMP=$(mktemp -d)
+    board_failed=0
+    (
+        cd "$REPO_ROOT/claudecode-agents/board" || exit 1
+        bunx tsc --noEmit || exit 1
+        bun build --target=bun src/cli.ts --outdir "$BOARD_TMP" >/dev/null || exit 1
+        if [ "${CHECK_ALL_BOARD_FULL:-}" = "1" ]; then
+            bun test --timeout=10000 || exit 1
+        else
+            bun test --timeout=10000 "${BOARD_TESTS[@]}" || exit 1
+        fi
+    ) || board_failed=1
+    rm -rf "$BOARD_TMP"
+    if [ "$board_failed" -eq 0 ]; then
+        printf 'board: ok\n'
+    else
+        printf 'board: FAILED\n'
+        FAILED+=("board")
+    fi
+fi
 
 printf '\n=== glossary ===\n'
 if "$REPO_ROOT/scripts/gen-glossary-rule.sh" --check; then
