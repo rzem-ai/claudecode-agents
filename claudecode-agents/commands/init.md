@@ -2,9 +2,17 @@
 description: Initialise the current project for the fleet - settings, CLAUDE.md skeleton, glossary rule, spec and plan directories, then a guided fill of every placeholder
 ---
 
-Initialise this project for the claudecode-agents fleet. Work through the four steps in order, report at the end, and never overwrite anything the project already has.
+Initialise this project for the claudecode-agents fleet. Work through the five steps in order, report at the end, and never overwrite anything the project already has.
 
 Templates live in this plugin at `${CLAUDE_PLUGIN_ROOT}/templates/`. Read each one from there; never reconstruct its content from memory.
+
+## 0. Repository
+
+Run `git rev-parse --is-inside-work-tree` at the project root before anything else.
+
+If it prints `true`, compare `git rev-parse --show-toplevel` with the current directory. When they match, say nothing and continue. When they differ, this directory sits inside a repository rooted elsewhere; the fleet initialises a repository root, not a subdirectory. Say where the root is and ask, with AskUserQuestion, whether to run the remaining steps at that root or stop.
+
+If it is not a repository, the fleet cannot work here: coder worktrees, review-round diffs, run articles and the `[board:...]` task markers all assume git. Ask, with AskUserQuestion, whether to initialise one - `git init -b main` - or stop. On yes, run exactly that and continue; the first commit stays the human's, made after this command has created the skeleton, which the report already reminds them to do. On no, stop here and say that every later step assumes a repository.
 
 ## 1. Settings
 
@@ -26,7 +34,7 @@ If `.claude/settings.json` does not exist, copy the template as-is. If it exists
 
 Skip this step entirely if step 2 skipped `CLAUDE.md`.
 
-Read the project before asking anything: manifest and lockfiles (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` or equivalent), build and test configuration, the directory layout, and the last dozen commit subjects. Draft an answer for every `<FILL: ...>` marker in the copied `CLAUDE.md` from that evidence.
+Read the project before asking anything: manifest and lockfiles (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod` or equivalent), build and test configuration, the directory layout, and the last dozen commit subjects (none, in a repository step 0 just created). Draft an answer for every `<FILL: ...>` marker in the copied `CLAUDE.md` from that evidence.
 
 Then walk the markers with the human using the AskUserQuestion tool, one topic per question, offering the inferred value as the recommended option. Markers you could not infer get an open question, not a guess. Write each confirmed value into `CLAUDE.md` as you go, and delete the marker-explainer paragraph near the top once no markers remain.
 
@@ -34,8 +42,8 @@ If the human declines the interview, fill the markers you inferred with confiden
 
 ## 4. Report
 
-End with a short report: what was created, what was merged and which keys, what was skipped and why, any settings conflicts, and any markers still unfilled. Remind the human to commit `.claude/settings.json` (and the rest) so every clone and every Claude Code on the web session gets the same fleet.
+End with a short report: whether step 0 created a repository, what was created, what was merged and which keys, what was skipped and why, any settings conflicts, and any markers still unfilled. Remind the human to commit `.claude/settings.json` (and the rest) so every clone and every Claude Code on the web session gets the same fleet.
 
 Then say what comes next, exactly: restart Claude Code and trust the folder - the new settings, `CLAUDE.md` and (if it was not already installed) the plugin all load at session start, so nothing done here is live until then - and in the new session run `/claudecode-agents:kickoff` to verify the install and start the first piece of work.
 
-Re-running this command is safe: every step skips what already exists, and step 3 only offers markers still present.
+Re-running this command is safe: every step skips what already exists, step 0 is silent in a repository, and step 3 only offers markers still present.
