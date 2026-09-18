@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 
-describe("the git layer is not carried", () => {
-	it("never auto-commits, whatever the config or the override says", async () => {
+describe("outside a git repository", () => {
+	it("still answers the config's auto_commit, but makes no commit since there is no repository to commit to", async () => {
 		const root = mkdtempSync(join(tmpdir(), "board-nogit-"));
 		try {
 			mkdirSync(join(root, DEFAULT_DIRECTORIES.BACKLOG));
@@ -15,8 +15,8 @@ describe("the git layer is not carried", () => {
 				'project_name: "t"\nauto_commit: true\nstatuses: ["To Do", "Done"]\n',
 			);
 			const core = new Core(root);
-			expect(await core.shouldAutoCommit()).toBe(false);
-			expect(await core.shouldAutoCommit(true)).toBe(false);
+			expect(await core.shouldAutoCommit()).toBe(true);
+			expect(await core.shouldAutoCommit(true)).toBe(true);
 			const { task } = await core.createTaskFromInput({ title: "x" });
 			expect(task.id).toBe("TASK-1");
 		} finally {

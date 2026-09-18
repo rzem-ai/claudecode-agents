@@ -1,14 +1,13 @@
-// The git layer is not carried.
+// The git layer, carried back in part on 18 September 2026 (docs/2026-09-18-project-boards.md).
 //
-// Backlog.md's cross-branch resolution and remote fetches are gone outright - the
-// code that called them was deleted, not disabled. Auto-commit is what remains
-// nominally callable, and every one of its call sites is behind Core.shouldAutoCommit
-// (core/backlog.ts), which returns a constant false; file-system/operations.ts also
-// forces autoCommit off in every config it hands out.
-//
-// The class exists so Core's type surface is unchanged. Every method that would touch
-// git throws, so a path that reaches one is loud rather than silently doing nothing.
+// Only what a board that commits its own writes needs: add and commit,
+// pathspec-limited to the board directory, an index-lock retry, and the
+// repository root. Cross-branch task loading, remote fetches and everything
+// else upstream's layer did stay out; the methods Core still calls for those
+// return empty rather than throwing, so filesystem-only reads are unchanged.
+import { BOARD_DIR } from "../board-root.ts";
 import type { BacklogConfig } from "../types/index.ts";
+import { getCommitContext } from "./commit-context.ts";
 
 export interface GitBranchTip {
 	name: string;
@@ -22,7 +21,21 @@ export interface GitIndexEntry {
 	stage: number;
 }
 
-const NOT_CARRIED = "git layer not carried: this path must be unreachable under filesystemOnly";
+export const NO_COMMIT_ENV = "CLAUDECODE_AGENTS_BOARD_NO_COMMIT";
+const LOCK_RETRIES = 3;
+const LOCK_RETRY_MS = 300;
+
+export function formatCommitSubject(id: string | undefined, note: string, by?: string): string {
+	const head = id ? `board: ${id} ${note}` : `board: ${note}`;
+	return by ? `${head} (${by})` : head;
+}
+
+function run(cwd: string, args: string[]): { code: number; out: string; err: string } {
+	const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+	return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().trim() };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export class GitOperations {
 	constructor(
@@ -33,10 +46,12 @@ export class GitOperations {
 
 	setConfig(_config: BacklogConfig | null): void {}
 
-	async getRepositoryRoot(_cwd?: string): Promise<string | null> {
-		return null;
+	async getRepositoryRoot(cwd?: string): Promise<string | null> {
+		const r = run(cwd ?? this.projectRoot, ["rev-parse", "--show-toplevel"]);
+		return r.code === 0 && r.out.length > 0 ? r.out : null;
 	}
 
+	/** Worktree copies of the board are never consulted, so there are none to list. */
 	async listWorktreePaths(): Promise<string[]> {
 		return [];
 	}
@@ -50,47 +65,79 @@ export class GitOperations {
 		_expectedEntries: readonly GitIndexEntry[],
 		_restoreEntries: readonly GitIndexEntry[],
 	): Promise<boolean> {
+		return true;
+	}
+
+	/**
+	 * The one commit routine. `git add -- .boards` then `git commit -- .boards`,
+	 * so the human's own staged work stays out of it. Skipped, quietly, when the
+	 * env var says so or .boards is ignored; retried on a locked index; logged and
+	 * false on anything else. The file write has already happened either way.
+	 */
+	async commitBoard(note: string, taskId?: string): Promise<boolean> {
+		if (process.env[NO_COMMIT_ENV] === "1") return false;
+		const root = await this.getRepositoryRoot();
+		if (!root) return false;
+		if (run(this.projectRoot, ["check-ignore", "-q", BOARD_DIR]).code === 0) return false;
+		const ctx = getCommitContext();
+		const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
+		for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
+			const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
+			if (add.code !== 0 && /index\.lock/.test(add.err)) {
+				await sleep(LOCK_RETRY_MS);
+				continue;
+			}
+			if (add.code !== 0) {
+				console.error(`board: commit skipped (git add): ${add.err}`);
+				return false;
+			}
+			const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR]);
+			if (commit.code === 0) return true;
+			if (/index\.lock/.test(commit.err)) {
+				await sleep(LOCK_RETRY_MS);
+				continue;
+			}
+			if (/nothing to commit|no changes added/.test(commit.err + commit.out)) return false;
+			console.error(`board: commit skipped (git commit): ${commit.err || commit.out}`);
+			return false;
+		}
+		console.error(`board: commit skipped: the index stayed locked for ${LOCK_RETRIES} attempts`);
 		return false;
 	}
 
-	async addFile(_filePath: string): Promise<void> {
-		throw new Error(NOT_CARRIED);
-	}
+	async addFile(_filePath: string): Promise<void> {}
 
-	async addFiles(_filePaths: string[]): Promise<void> {
-		throw new Error(NOT_CARRIED);
-	}
+	async addFiles(_filePaths: string[]): Promise<void> {}
 
 	async stageFileMove(_fromPath: string, _toPath: string): Promise<string | null> {
-		throw new Error(NOT_CARRIED);
+		return this.getRepositoryRoot();
 	}
 
-	async resetPaths(_filePaths: string[], _repoRoot?: string | null): Promise<void> {
-		throw new Error(NOT_CARRIED);
+	async resetPaths(_filePaths: string[], _repoRoot?: string | null): Promise<void> {}
+
+	async commitFiles(message: string, _filePaths: string[], _repoRoot?: string | null): Promise<void> {
+		await this.commitBoard(message.replace(/^backlog:\s*/i, ""));
 	}
 
-	async commitFiles(_message: string, _filePaths: string[], _repoRoot?: string | null): Promise<void> {
-		throw new Error(NOT_CARRIED);
-	}
-
-	async commitTaskChange(_taskId: string, _message: string, _filePath: string): Promise<void> {
-		throw new Error(NOT_CARRIED);
+	async commitTaskChange(taskId: string, message: string, _filePath: string): Promise<void> {
+		await this.commitBoard(message.replace(new RegExp(`^(Create|Update) (draft )?${taskId}$`), (_m, verb) => (verb === "Create" ? "created" : "updated")), taskId);
 	}
 
 	async addAndCommitTaskFile(
-		_taskId: string,
+		taskId: string,
 		_filePath: string,
-		_action: "create" | "update" | "archive",
+		action: "create" | "update" | "archive",
 		_onStaged?: (entries: GitIndexEntry[]) => void,
 	): Promise<void> {
-		throw new Error(NOT_CARRIED);
+		const note = action === "create" ? "created" : action === "update" ? "updated" : "archived";
+		await this.commitBoard(note, taskId);
 	}
 }
 
-export async function isGitRepository(_projectRoot: string): Promise<boolean> {
-	return false;
+export async function isGitRepository(projectRoot: string): Promise<boolean> {
+	return run(projectRoot, ["rev-parse", "--is-inside-work-tree"]).code === 0;
 }
 
 export async function initializeGitRepository(_projectRoot: string): Promise<void> {
-	throw new Error(NOT_CARRIED);
+	throw new Error("the board never initialises a repository; /init does");
 }

@@ -998,12 +998,14 @@ export class Core {
 	}
 
 	/**
-	 * The git layer is not carried, so nothing auto-commits - not on the config's say-so
-	 * and not on a caller's `--auto-commit` override. Every git call site in this file is
-	 * guarded by this, which is why the stub in git/operations.ts can throw.
+	 * The config's `auto_commit`, unless the caller overrode it. The git layer
+	 * itself honours CLAUDECODE_AGENTS_BOARD_NO_COMMIT and an ignored .boards,
+	 * so this only answers whether the config asked for commits at all.
 	 */
-	async shouldAutoCommit(_overrideValue?: boolean): Promise<boolean> {
-		return false;
+	async shouldAutoCommit(overrideValue?: boolean): Promise<boolean> {
+		if (typeof overrideValue === "boolean") return overrideValue;
+		const config = await this.fs.loadConfig();
+		return config?.autoCommit === true;
 	}
 
 	async getGitOps() {
