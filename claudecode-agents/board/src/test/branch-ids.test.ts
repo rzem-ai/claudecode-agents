@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BOARD_DIR } from "../board-root.ts";
@@ -52,6 +52,51 @@ describe("listTaskIdsAcrossRefs", () => {
 describe("generateNextId", () => {
 	it("skips an id that only exists on another branch", async () => {
 		const { task } = await new Core(repo).createTaskFromInput({ title: "three" });
+		expect(task.id).toBe("BD-3");
+	});
+});
+
+// The realpath fix in Core.getActiveAndCompletedTaskIds only fires when
+// getRepositoryRoot()'s canonicalised answer differs from the path Core was
+// built with. On macOS that happens for free because tmpdir() sits under a
+// symlink (/tmp -> /private/tmp); on other platforms it does not. Building
+// an explicit symlink to the repository pins the behaviour on any platform.
+describe("generateNextId through a symlinked root", () => {
+	let symTmp = "";
+	let symRealRepo = "";
+	let symLinkedRepo = "";
+
+	function symGit(...args: string[]) {
+		const p = Bun.spawnSync(["git", "-C", symRealRepo, ...args], { stdout: "pipe", stderr: "pipe" });
+		if (p.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${p.stderr.toString()}`);
+		return p.stdout.toString().trim();
+	}
+
+	beforeAll(async () => {
+		symTmp = mkdtempSync(join(tmpdir(), "branch-ids-sym-"));
+		symRealRepo = join(symTmp, "real-repo");
+		symLinkedRepo = join(symTmp, "linked-repo");
+		mkdirSync(join(symRealRepo, BOARD_DIR, "tasks"), { recursive: true });
+		writeFileSync(
+			join(symRealRepo, BOARD_DIR, "config.yml"),
+			'project_name: "t"\ntask_prefix: "BD"\nstatuses: ["To Do", "Doing", "Done"]\ndefault_status: "To Do"\nauto_commit: true\n',
+		);
+		symGit("init", "-q", "-b", "main");
+		symGit("config", "user.email", "t@t");
+		symGit("config", "user.name", "t");
+		symGit("add", "-A");
+		symGit("commit", "-q", "-m", "base");
+		await new Core(symRealRepo).createTaskFromInput({ title: "one" }); // BD-1 on main, committed
+		symGit("switch", "-q", "-c", "other");
+		await new Core(symRealRepo).createTaskFromInput({ title: "two" }); // BD-2 on other, committed
+		symGit("switch", "-q", "main"); // BD-2's file is gone from the working tree
+		symlinkSync(symRealRepo, symLinkedRepo);
+	});
+
+	afterAll(() => rmSync(symTmp, { recursive: true, force: true }));
+
+	it("skips an id that only exists on another branch, reached through a symlink", async () => {
+		const { task } = await new Core(symLinkedRepo).createTaskFromInput({ title: "three" });
 		expect(task.id).toBe("BD-3");
 	});
 });
