@@ -3,7 +3,7 @@
  */
 export const DEFAULT_DIRECTORIES = {
 	/** The board directory under the board root */
-	BACKLOG: "board",
+	BACKLOG: ".boards",
 	/** Hidden backlog directory */
 	HIDDEN_BACKLOG: ".backlog",
 	/** Active tasks directory */

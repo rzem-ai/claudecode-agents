@@ -1,39 +1,36 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BOARD_ROOT_ENV, resolveBoardRoot } from "../board-root.ts";
+import { BOARD_DIR, BOARD_ROOT_ENV, resolveBoardRoot } from "../board-root.ts";
 
-describe("resolveBoardRoot", () => {
-	it("uses the environment variable when it names a directory", () => {
+describe("resolveBoardRoot with the environment variable", () => {
+	it("uses the variable when it names a directory, without asking git", () => {
 		const dir = mkdtempSync(join(tmpdir(), "board-root-"));
 		try {
-			expect(resolveBoardRoot({ [BOARD_ROOT_ENV]: dir })).toBe(dir);
+			expect(resolveBoardRoot({ [BOARD_ROOT_ENV]: dir }, "/")).toBe(dir);
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
 
-	it("defaults to ~/.memory when the variable is unset or blank", () => {
-		const home = mkdtempSync(join(tmpdir(), "board-home-"));
-		try {
-			const expected = join(home, ".memory");
-			require("node:fs").mkdirSync(expected);
-			expect(resolveBoardRoot({ HOME: home })).toBe(expected);
-			expect(resolveBoardRoot({ HOME: home, [BOARD_ROOT_ENV]: "  " })).toBe(expected);
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
 	it("throws a message naming the variable when the root is not a directory", () => {
-		expect(() => resolveBoardRoot({ [BOARD_ROOT_ENV]: "/nonexistent/board-root" })).toThrow(BOARD_ROOT_ENV);
+		expect(() => resolveBoardRoot({ [BOARD_ROOT_ENV]: "/nonexistent/board-root" }, "/")).toThrow(BOARD_ROOT_ENV);
 	});
 
-	// With no variable and no home, the old code resolved ".memory" against the
-	// process's cwd - the cwd-derived discovery the design forbids, and the one
-	// way a board could appear inside a worktree.
-	it("throws rather than resolving against the cwd when there is no home either", () => {
-		expect(() => resolveBoardRoot({})).toThrow(BOARD_ROOT_ENV);
+	it("ignores a blank variable and falls through to discovery", () => {
+		// "/" is not a repository, so discovery must say so rather than
+		// resolving against the process cwd or a home directory.
+		expect(() => resolveBoardRoot({ [BOARD_ROOT_ENV]: "  " }, "/")).toThrow("no board here");
+	});
+
+	it("names the directory constant in the no-board message", () => {
+		const bare = mkdtempSync(join(tmpdir(), "no-board-"));
+		mkdirSync(join(bare, "x"));
+		try {
+			expect(() => resolveBoardRoot({}, join(bare, "x"))).toThrow(BOARD_DIR);
+		} finally {
+			rmSync(bare, { recursive: true, force: true });
+		}
 	});
 });
