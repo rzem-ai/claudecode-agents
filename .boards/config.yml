@@ -1,0 +1,12 @@
+# This repository's board. Created by /init; edit by hand and commit like any
+# other project file. The hooks match statuses ignoring case.
+project_name: "claudecode-agents"
+task_prefix: "BD"
+statuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]
+default_status: "To Do"
+labels: ["outcome/shipped", "outcome/abandoned", "outcome/superseded"]
+priorities: ["High", "Medium", "Low"]
+# The binary commits every write it makes, pathspec-limited to .boards, on the
+# checked-out branch, never pushed. Set false to batch commits yourself, or
+# export CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1 for one shell.
+auto_commit: true
