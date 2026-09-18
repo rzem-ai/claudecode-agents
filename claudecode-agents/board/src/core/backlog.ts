@@ -1,6 +1,7 @@
+import { realpathSync } from "node:fs";
 import { rename as moveFile, readFile, stat, unlink, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join, relative } from "node:path";
-import { resolveBoardRoot } from "../board-root.ts";
+import { BOARD_DIR, resolveBoardRoot } from "../board-root.ts";
 import { DEFAULT_DIRECTORIES, DEFAULT_STATUSES, FALLBACK_STATUS } from "../constants/index.ts";
 import {
 	type DraftFileReference,
@@ -8,6 +9,7 @@ import {
 	isConfigValueError,
 	isCreateLockError,
 } from "../file-system/operations.ts";
+import { listTaskIdsAcrossRefs } from "../git/branch-ids.ts";
 import { type GitIndexEntry, GitOperations } from "../git/operations.ts";
 import { parseFrontmatter } from "../markdown/frontmatter.ts";
 import { assertSectionInputHasNoMarkerLines } from "../markdown/structured-sections.ts";
@@ -1128,6 +1130,25 @@ export class Core {
 		for (const task of completedTasks) occupiedIds.add(task.id);
 		for (const entry of worktreeEntries) {
 			if (entry.type === "task" || entry.type === "completed") occupiedIds.add(entry.id);
+		}
+
+		// Ids committed on other branches - a contributor's, or this machine's own
+		// unmerged work - occupy the namespace too. Read-only; see git/branch-ids.ts.
+		const repoRoot = await this.git.getRepositoryRoot();
+		if (repoRoot) {
+			// getRepositoryRoot() answers git's canonicalised toplevel (symlinks
+			// resolved, e.g. macOS /tmp -> /private/tmp); this.fs.rootDir is whatever
+			// path Core was built with and may still carry a symlink component.
+			// Resolve both before diffing them, or a real repo under a symlinked
+			// path silently misidentifies the board's location inside it.
+			let projectRelativePath: string;
+			try {
+				projectRelativePath = relative(realpathSync(repoRoot), realpathSync(this.fs.rootDir));
+			} catch {
+				projectRelativePath = relative(repoRoot, this.fs.rootDir);
+			}
+			const boardRel = projectRelativePath ? `${projectRelativePath}/${BOARD_DIR}` : BOARD_DIR;
+			for (const id of listTaskIdsAcrossRefs(repoRoot, boardRel, taskPrefix)) occupiedIds.add(id);
 		}
 		return [...occupiedIds];
 	}
