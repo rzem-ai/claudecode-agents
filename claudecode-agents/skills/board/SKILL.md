@@ -20,7 +20,7 @@ A Task in the glossary sense never appears on the board. Tasks are the execution
 
 The lead files work that surfaces mid-run. An agent that spots adjacent work while doing a task does not file it itself: the work leaves the run as a `Propose item:` line under Decisions needed, and the lead files it when it merges the handoffs.
 
-`fleet-steward` is the named exception, and the only one. Its sweep is scheduled and unattended rather than mid-run, and there is no lead in the loop to file for it, so proposing would mean a weekly run produced nothing at all until the human next started a session. It files what the sweep found itself, as items under the `Claude Agents` project. That is a licence to create issues and comment on them and nothing else: it still never edits a field, moves an issue or writes a state on one that already exists.
+`fleet-steward` is the named exception, and the only one. Its sweep is scheduled and unattended rather than mid-run, and there is no lead in the loop to file for it, so proposing would mean a weekly run produced nothing at all until the human next started a session. It files what the sweep found itself, as items on the claudecode-agents repository's board. That is a licence to create issues and comment on them and nothing else: it still never edits a field, moves an issue or writes a state on one that already exists.
 
 ## The five columns
 
@@ -40,7 +40,7 @@ Blocked and blocked by human are separate columns because they need different re
 
 Two environments share this board and they write it differently. Know which one you are in before you touch anything.
 
-**In the fleet, columns are written by hooks and never by an agent.** Three hooks cover every transition in the table above, each calling the `board` binary against the memory tree. So do not move an item, do not ask for one to be moved, and do not report that you moved one. The only thing you contribute is a correctly formatted handoff, because that is what the hook reads. An agent body or a run that tries to update a state is wrong even when the state it wants is correct. Filing a new issue is a different act from writing a column: a new item arrives in to do because that is where new items start. Moving one that already exists is the thing nobody but a hook does.
+**In the fleet, columns are written by hooks and never by an agent.** Three hooks cover every transition in the table above, each calling the `board` binary against this repository's `.boards/`. So do not move an item, do not ask for one to be moved, and do not report that you moved one. The only thing you contribute is a correctly formatted handoff, because that is what the hook reads. An agent body or a run that tries to update a state is wrong even when the state it wants is correct. Filing a new issue is a different act from writing a column: a new item arrives in to do because that is where new items start. Moving one that already exists is the thing nobody but a hook does.
 
 A comment ending in a `[Cut to fit a board comment ...]` line names a file under `~/.local/state/claudecode-agents/archives/<session-id>/` on the human's machine: that is the whole comment, written by the hook at the moment it cut it, and it is the only copy of the part the card is missing.
 
@@ -102,7 +102,7 @@ So an item that turns out to have been the wrong idea is done with `outcome/aban
 
 Title the issue as the change, in the imperative, in the glossary's words - "Rotate refresh tokens on reuse", not "refresh token stuff" and not "Investigate the auth epic". One item, one outcome. If an issue needs two answers to close, it is two issues or a parent with sub-issues.
 
-Every issue is in a project, because an issue with no project is invisible in every view that matters. The project is one of the names in the config's list, and the lead adds a name there before filing the first item under it. A label naming the repo (`claudecode-agents`, `opencode-agents`) goes on the project, and on an issue only when the project spans repos. A milestone is set only when there is a real date or deliverable, not to express urgency.
+The project field on an issue is optional: it names a part of a monorepo when there is one, and is otherwise left unset, because the project is the repository. A label naming the repo (`claudecode-agents`, `opencode-agents`) goes on the project, and on an issue only when the project spans repos. A milestone is set only when there is a real date or deliverable, not to express urgency.
 
 Link `docs/specs/<issue>.md` and `docs/plans/<issue>.md` on the issue rather than pasting their contents into it. The repo is the source of truth for both and a copy on the issue goes stale silently.
 
@@ -110,7 +110,7 @@ Add comments, do not rewrite descriptions. The history of an issue is how a bloc
 
 ## Git
 
-Every write the binary makes is a commit: `git add -- .boards` then `git commit -- .boards` in the main checkout, on whatever branch is checked out there, with a one-line subject such as `board: BD-12 Doing (SubagentStart)` or `board: BD-12 created (fleet-steward)`. The pathspec keeps the human's own staged work out. Nothing pushes; the human's next push carries it. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards` - leaves the file write standing and logs `commit skipped`. `auto_commit: false` in the config or `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` in a shell turns commits off.
+Every write the binary makes is a commit: `git add -- .boards` then `git commit -- .boards` in the main checkout, on whatever branch is checked out there, with a one-line subject such as `board: BD-12 Doing (SubagentStart)` or `board: BD-12 created (fleet-steward)`. The pathspec keeps the human's own staged work out. Nothing pushes; the human's next push carries it. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards` - leaves the file write standing and logs `commit skipped`. Commits happen only when `auto_commit: true` is set in the config - an absent key means no commits - and `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` turns them off for a shell.
 
 A hook fired inside a coder's worktree resolves to the main checkout, so a feature branch never carries a board change unless a person put one there. Ids are allocated above the highest id in every branch the clone knows, so two contributors do not mint the same one; a clone that has not fetched cannot know, and that is the limit.
 
