@@ -7,7 +7,7 @@
 // return empty rather than throwing, so filesystem-only reads are unchanged.
 import { BOARD_DIR } from "../board-root.ts";
 import type { BacklogConfig } from "../types/index.ts";
-import { getCommitContext } from "./commit-context.ts";
+import { clearCommitContext, getCommitContext } from "./commit-context.ts";
 
 export interface GitBranchTip {
 	name: string;
@@ -71,38 +71,56 @@ export class GitOperations {
 	/**
 	 * The one commit routine. `git add -- .boards` then `git commit -- .boards`,
 	 * so the human's own staged work stays out of it. Skipped, quietly, when the
-	 * env var says so or .boards is ignored; retried on a locked index; logged and
-	 * false on anything else. The file write has already happened either way.
+	 * env var says so, .boards is ignored, or the add produced no staged change
+	 * (decided from the index with `git diff --cached`, never by matching git's
+	 * prose, which varies with untracked files present); retried on a locked
+	 * index; logged and false on anything else. Every branch that leaves the
+	 * loop after a successful `add` first runs `git reset -- .boards`, so a
+	 * commit that cannot be made never leaves .boards sitting in the human's
+	 * index (a mid-merge commit is the case that matters: git refuses a partial
+	 * commit there, and the add must not survive that refusal). The file write
+	 * has already happened either way. The commit context is always cleared
+	 * here, win or lose, so a later write in the same process is never labelled
+	 * with this one's note.
 	 */
 	async commitBoard(note: string, taskId?: string): Promise<boolean> {
-		if (process.env[NO_COMMIT_ENV] === "1") return false;
-		const root = await this.getRepositoryRoot();
-		if (!root) return false;
-		if (run(this.projectRoot, ["check-ignore", "-q", BOARD_DIR]).code === 0) return false;
-		const ctx = getCommitContext();
-		const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
-		for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
-			const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
-			if (add.code !== 0 && /index\.lock/.test(add.err)) {
-				await sleep(LOCK_RETRY_MS);
-				continue;
-			}
-			if (add.code !== 0) {
-				console.error(`board: commit skipped (git add): ${add.err}`);
+		try {
+			if (process.env[NO_COMMIT_ENV] === "1") return false;
+			const root = await this.getRepositoryRoot();
+			if (!root) return false;
+			if (run(this.projectRoot, ["check-ignore", "-q", BOARD_DIR]).code === 0) return false;
+			const ctx = getCommitContext();
+			const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
+			for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
+				const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
+				if (add.code !== 0 && /index\.lock/.test(add.err)) {
+					await sleep(LOCK_RETRY_MS);
+					continue;
+				}
+				if (add.code !== 0) {
+					console.error(`board: commit skipped (git add): ${add.err}`);
+					return false;
+				}
+				// A no-op write (a status set to what it already was, the second
+				// commitFiles of a multi-step archive) stages nothing to commit.
+				// Decide that from the index, not from git's commit-failure prose.
+				const diff = run(this.projectRoot, ["diff", "--cached", "--quiet", "--", BOARD_DIR]);
+				if (diff.code === 0) return false;
+				const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR]);
+				if (commit.code === 0) return true;
+				run(this.projectRoot, ["reset", "-q", "--", BOARD_DIR]);
+				if (/index\.lock/.test(commit.err)) {
+					await sleep(LOCK_RETRY_MS);
+					continue;
+				}
+				console.error(`board: commit skipped (git commit): ${commit.err || commit.out}`);
 				return false;
 			}
-			const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR]);
-			if (commit.code === 0) return true;
-			if (/index\.lock/.test(commit.err)) {
-				await sleep(LOCK_RETRY_MS);
-				continue;
-			}
-			if (/nothing to commit|no changes added/.test(commit.err + commit.out)) return false;
-			console.error(`board: commit skipped (git commit): ${commit.err || commit.out}`);
+			console.error(`board: commit skipped: the index stayed locked for ${LOCK_RETRIES} attempts`);
 			return false;
+		} finally {
+			clearCommitContext();
 		}
-		console.error(`board: commit skipped: the index stayed locked for ${LOCK_RETRIES} attempts`);
-		return false;
 	}
 
 	async addFile(_filePath: string): Promise<void> {}
@@ -120,7 +138,10 @@ export class GitOperations {
 	}
 
 	async commitTaskChange(taskId: string, message: string, _filePath: string): Promise<void> {
-		await this.commitBoard(message.replace(new RegExp(`^(Create|Update) (draft )?${taskId}$`), (_m, verb) => (verb === "Create" ? "created" : "updated")), taskId);
+		const note = message.replace(new RegExp(`^(Create|Update) (draft )?${taskId}$`), (_m, verb) =>
+			verb === "Create" ? "created" : "updated",
+		);
+		await this.commitBoard(note, taskId);
 	}
 
 	async addAndCommitTaskFile(
