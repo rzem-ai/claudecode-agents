@@ -1005,16 +1005,44 @@ enforce_reviewer() {
 CODER_WRITING_GIT=" commit switch checkout branch reset merge rebase push stash cherry-pick revert am apply tag clean rm mv restore worktree "
 
 # The directory a git command actually targets: its -C if it has one, else the
-# directory the tool call runs in.
+# directory the segment runs in ($2), which is the tool call's cwd until a cd
+# or pushd earlier in the same command moves it. A relative -C is resolved
+# against that directory too, not against wherever this hook happens to run.
 git_target_dir() {
-  local seg="$1" tok want=no
+  local seg="$1" here="${2:-$cwd}" tok want=no
   # shellcheck disable=SC2086 # deliberate word splitting: this is a word scan
   set -- $(command_words "$seg")
   for tok in "$@"; do
-    if [ "$want" = yes ]; then printf '%s' "$tok"; return 0; fi
+    if [ "$want" = yes ]; then lex_abs "$tok" "$here"; return 0; fi
     [ "$tok" = "-C" ] && want=yes
   done
-  printf '%s' "$cwd"
+  printf '%s' "$here"
+}
+
+# The sub-verb of `git worktree`, or empty. `worktree add` is the one writing
+# git command allowed from a main checkout: it creates the isolation this guard
+# exists to require, touches no branch there, and is how coder gets a worktree
+# in a repository the harness did not cut one in. `remove`, `prune` and `move`
+# stay governed - coder's own body forbids removing a worktree with work in it.
+worktree_sub_verb() {
+  local tok state=opts
+  # shellcheck disable=SC2086 # deliberate word splitting: this is a word scan
+  set -- $(command_words "$1")
+  shift  # git
+  for tok in "$@"; do
+    if [ "$state" = skip ]; then state=opts; continue; fi
+    case "$tok" in
+      -C|-c|--git-dir|--work-tree) state=skip; continue ;;
+      -*) continue ;;
+    esac
+    if [ "$state" = opts ]; then
+      [ "$tok" = worktree ] && state=verb
+      continue
+    fi
+    printf '%s' "$tok"
+    return 0
+  done
+  printf ''
 }
 
 enforce_coder() {
@@ -1022,20 +1050,42 @@ enforce_coder() {
   [ -n "$command_str" ] || return 0
   command -v git >/dev/null 2>&1 || return 0
 
-  local scan seg verb target gitdir
+  local scan seg verb target gitdir here prev first arg
+  # Where each segment runs. A cd or pushd earlier in the same command moves
+  # every segment after it, so `cd <other repo> && git commit` has to be judged
+  # in <other repo>, not in the worktree the tool call started in. Observed in
+  # a cross-repository run, 18 September 2026 (GitHub issue #7): the -C form
+  # was refused and the cd form walked straight through.
+  here="$cwd"; prev="$cwd"
   scan="$(strip_quoted "$command_str")"
   scan="$(bound_segments "$(printf '%s' "$scan" | sed -E 's/(\|\||&&|;|\||&)/\n/g')")"
   while IFS= read -r seg; do
-    seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')"
+    # A subshell's parens are stripped with the whitespace: `(cd x && git
+    # commit)` runs the commit in x just the same.
+    seg="$(printf '%s' "$seg" | sed -E 's/^[[:space:](]+//; s/[[:space:])]+$//')"
     [ -n "$seg" ] || continue
-    [ "$(leading_token "$seg")" = "git" ] || continue
+    first="$(leading_token "$seg")"
+    case "$first" in
+      cd|pushd)
+        arg="$(printf '%s' "$(command_words "$seg")" | awk '{print $2}')"
+        case "$arg" in
+          ''|'~') prev="$here"; here="$HOME" ;;
+          -)      arg="$prev"; prev="$here"; here="$arg" ;;
+          -*)     ;;
+          *)      prev="$here"; here="$(lex_abs "$arg" "$here")" ;;
+        esac
+        continue ;;
+      git) ;;
+      *) continue ;;
+    esac
     verb="$(sub_verb "$seg")"
     case "$CODER_WRITING_GIT" in
       *" $verb "*) ;;
       *) continue ;;
     esac
+    if [ "$verb" = worktree ] && [ "$(worktree_sub_verb "$seg")" = add ]; then continue; fi
 
-    target="$(git_target_dir "$seg")"
+    target="$(git_target_dir "$seg" "$here")"
     [ -n "$target" ] || target="."
     gitdir="$(git -C "$target" rev-parse --absolute-git-dir 2>/dev/null)" || gitdir=""
     case "$gitdir" in

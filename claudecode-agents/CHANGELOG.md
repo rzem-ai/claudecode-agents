@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
+## [0.17.2] - 2026-09-18
+
+Three issues filed from one cross-repository run (GitHub #5, #6, #7). One was a hole in the coder guard, one was the harness rather than the plugin, and one was a design the bodies had never explained.
+
+### Fixed
+
+- **The coder worktree guard follows `cd`.** `enforce-agent-scope.sh` judged a writing git command by its `-C` or the tool call's `cwd`, so `cd <other repo> && git commit` walked through while `git -C <other repo> commit` was refused (#7). Each segment is now judged where it runs: `cd`, `pushd` and `cd -` move the directory for everything after them, a subshell's leading paren is stripped, and a relative `-C` resolves against that directory rather than wherever the hook runs. Fourteen new contract cases pin the cd shapes and the worktree-add allowance in both directions; the suite is 304 checks.
+
+### Changed
+
+- **`git worktree add` is allowed from a main checkout.** With the guard following `cd`, a coder could never commit into a second repository at all, since that repo's primary checkout is never a linked worktree. `worktree add` creates the isolation the guard requires and moves no branch there, so it is the one writing verb let through anywhere; `worktree remove`, `prune` and `move` stay refused outside a linked worktree. The coder body says to cut one before writing to another repository.
+- **The coder body carries what three coders each rediscovered (#6).** The refusals that run reported were the harness's worktree-session guard, which refuses compound commands and multi-line scripts that name git - `.gitignore` included - and not this plugin's hook, which allows every one of those shapes; the body now says one plain git command per call and a script by path. It also records that `pnpm` does not run under the Bash sandbox and what to call instead (#5, noted there as harness cost).
+- **The reviewer body says why it cannot run the gates (#5).** The execution ban is a role boundary rather than a safety rule, the hook allowlists read commands because a denylist of runners was never finishable, and the independent run belongs to the `TaskCompleted` hook and `refuter`. The reviewer is told to name each gate it could not run and who should run it, so an approve never reads as if it had.
+
 ## [0.17.1] - 2026-09-18
 
 The docs catch up with 0.17.0: nothing the plugin runs changes.

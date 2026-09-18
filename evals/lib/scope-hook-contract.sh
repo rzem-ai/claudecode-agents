@@ -392,6 +392,37 @@ if [ -d "$WT" ]; then
     # Everything else coder does is untouched.
     allow_bash coder 'npm test' "$MAINCO"
     allow_bash coder 'python3 -m pytest' "$MAINCO"
+
+    # A cd earlier in the same command moves the write. GitHub issue #7: a
+    # coder porting work into a second repository committed to that repo's
+    # primary checkout, and the guard let it through because it only ever
+    # looked at -C or the tool call's cwd. The -C form of the same commit was
+    # refused; the cd form must be too, and cd back must restore the allow.
+    OTHER="$TMP/repo-other"
+    mkdir -p "$OTHER"
+    git -C "$OTHER" init -q . 2>/dev/null
+    git -C "$OTHER" config user.email t@t
+    git -C "$OTHER" config user.name t
+    git -C "$OTHER" commit -q --allow-empty -m base 2>/dev/null
+    deny_bash_saying_in coder "cd $OTHER && git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "cd $OTHER; git add -A; git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "cd $OTHER
+git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "(cd $OTHER && git commit -m x)" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "pushd $OTHER && git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "cd ../repo-other && git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "cd $OTHER && git -C . commit -m x" 'not a linked worktree' "$WT"
+    allow_bash coder "cd $WT && git commit -m x" "$MAINCO"
+    allow_bash coder "cd $OTHER && cd - && git commit -m x" "$WT"
+    allow_bash coder "cd $OTHER && git status && git log -1" "$WT"
+
+    # The one writing verb allowed from a main checkout is worktree add: it is
+    # how coder gets isolation in a repository the harness did not cut one in,
+    # and it moves no branch there. The destructive worktree verbs stay refused.
+    allow_bash coder "git -C $OTHER worktree add $TMP/other-wt -b agent-x" "$WT"
+    allow_bash coder "cd $OTHER && git worktree add .claude/worktrees/agent-x -b agent-x" "$WT"
+    deny_bash_saying_in coder "git -C $OTHER worktree remove $TMP/other-wt" 'not a linked worktree' "$WT"
+    deny_bash_saying_in coder "cd $OTHER && git worktree prune" 'not a linked worktree' "$WT"
 fi
 
 printf '\nWrappers are transparent; sudo is not a wrapper\n'

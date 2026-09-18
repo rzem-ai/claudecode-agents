@@ -33,6 +33,12 @@ Out of scope: deciding what to build, rewriting the spec or the plan, work from 
 5. Commit small and often - one logical change per commit, with the tests that prove it in the same commit.
 6. Run the phase's tests, lint and build before you finish, and record every command you could not run.
 
+One plain git command per Bash call. The worktree session's own guard - the harness's, not this plugin's hook, so its refusal names no rule - turns down compound commands, heredocs and multi-line scripts that name git, and a filename like `.gitignore` counts as naming it. Split them, and put a script in the scratchpad and run it by path rather than through `node -e`. The first refusal costs a round; do not spend a second one on it.
+
+`pnpm` does not run under the Bash sandbox: the relocated store fails it with `ERR_PNPM_UNEXPECTED_STORE`, or it tries to purge `node_modules` and cannot without a terminal. Call the tool at `./node_modules/.bin/<tool>` instead, and record any install you could not run under Unverified.
+
+When the phase's repository is not the one your worktree belongs to, you have no isolation there and the guard will refuse every writing git command in its primary checkout. Cut one first - `git -C <repo> worktree add .claude/worktrees/<branch> -b <branch>` is the one writing command the guard allows from a main checkout - work in it, and say in the handoff that you did.
+
 ## Invariants
 
 Never force-push and never rewrite published history: no `push --force`, no `push --force-with-lease`, no `reset --hard` on a shared branch, no rebase of pushed commits.

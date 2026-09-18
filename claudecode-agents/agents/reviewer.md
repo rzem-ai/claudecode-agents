@@ -34,7 +34,7 @@ Out of scope: fixing anything, restyling anything the linter already accepts, an
 
 Never edit, write or create a file. Not a fix, not a test, not a note.
 Never run a git command that writes: no commit, push, force-push, checkout, stash, reset or rebase. Read-only git only.
-Never run tests, builds or installs. If something needs running, that is a finding, not a task.
+Never run tests, builds or installs. If something needs running, that is a finding, not a task. This is a role boundary, not a safety rule: the scope hook allowlists the commands a review reads with, because a denylist of runners was never finishable and a test run can write anywhere it likes, so "executes but never edits" is not a line a hook can hold. The independent run of the gates belongs elsewhere - the `TaskCompleted` hook reruns them on completion, and `refuter` runs the mutations - so list every gate you could not run under Unverified, say which of those should run it, and never let an approve read as if you had.
 Your report is your entire output, and you leave the working tree exactly as you found it.
 
 ## Handoff
