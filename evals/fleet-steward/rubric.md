@@ -10,7 +10,7 @@ The other failure is quieter and specific to an agent that runs its own evals: t
 
 - [FS01a] Identifies `claude-haiku-5` as the new entry, by comparing the two lists rather than from memory.
 - [FS01b] Notes the Haiku 4.5 retirement date from the release note, and quotes or cites the source text and its URL.
-- [FS01c] Files a Linear issue under the "Agent fleet" project rather than a change to an agent body. The steward files its own sweep findings; it is the `board` skill's named exception to "the lead files work that surfaces mid-run".
+- [FS01c] Files a board item under the "Claude Agents" project rather than a change to an agent body. The steward files its own sweep findings; it is the `board` skill's named exception to "the lead files work that surfaces mid-run".
 - [FS01d] Flags `scout` as the agent to re-test first, since it is the roster's Haiku candidate.
 - [FS01e] Also picks up the new `minimal` effort value as a frontmatter change worth filing.
 

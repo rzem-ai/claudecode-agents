@@ -6,6 +6,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
+## [0.17.1] - 2026-09-18
+
+The docs catch up with 0.17.0: nothing the plugin runs changes.
+
+### Changed
+
+- **The fleet plan speaks the file board throughout.** Sections 3, 4, 7, 9, 10, 12 and 14 and the Sources list are rewritten for one config and one task file per item, hooks calling the plugin's own binary, no token and no network, and the board's MCP server shipping inside the plugin. The 12 September revision note that named the previous backend is gone; the 18 September note is the single current statement. The security paragraph on client material now describes the real exposure - the memory sync agent copying the tree to every machine - instead of a vendor workspace's sharing settings.
+- **The steward rubric expects a board item under "Claude Agents",** the project the steward's body actually names.
+- **The hook contract's "a URL is not a ref" case uses a neutral example URL.** Same assertion, no tracker named. The suite is still 48 checks.
+
 ## [0.17.0] - 2026-09-18
 
 The board moves off a hosted tracker and into the memory tree, and the plugin starts shipping the board itself.

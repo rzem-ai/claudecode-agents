@@ -103,8 +103,8 @@ run_hook board-task-completed.sh \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$a,task_title:$b}')"
 log_has "names board item $PAGE_A" && ! log_has "$PAGE_B"; check subject-wins "task_subject wins over a conflicting task_title" $?
 
-# A ref is a BD id in any case, a sub-task id, or a task file path. A Linear
-# URL and a UUID were refs on the old board and are not refs now.
+# A ref is a BD id in any case, a sub-task id, or a task file path. A
+# tracker URL and a UUID are not refs.
 run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship the refresh [board:bd-12]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
@@ -121,9 +121,9 @@ run_hook board-task-completed.sh \
 log_has "names board item BD-12" && ! log_has "SHIP"; check path-binds "a task file path resolves to its id, not its title" $?
 
 run_hook board-task-completed.sh \
-    "$(jq -nc --arg s "Ship [board:https://linear.app/rzemai/issue/RZE-123/fix-thing-2]" --arg c "$TMP" \
+    "$(jq -nc --arg s "Ship [board:https://tracker.example/team/issue/ABC-123/fix-thing-2]" --arg c "$TMP" \
         '{session_id:"s1",cwd:$c,task_id:"t1",task_subject:$s}')"
-! log_has "names board item"; check url-is-not-a-ref "a Linear URL is no longer a ref" $?
+! log_has "names board item"; check url-is-not-a-ref "a tracker URL is not a ref" $?
 
 run_hook board-task-completed.sh \
     "$(jq -nc --arg s "Ship [board:11111111-1111-1111-1111-111111111111]" --arg c "$TMP" \
