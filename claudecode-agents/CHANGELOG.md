@@ -26,6 +26,10 @@ The board lives with the project. Each repository has its own at `.boards/`, com
 - **`/kickoff` checks `.boards/` in this repository; the installer only builds the binary** and no longer writes to the memory tree or its watcher. `home/board.config.yml` is gone.
 - **The board skill, the glossary, the fleet plan and the hooks README** say all of the above; the `projects` list is no longer required and a project is the repository.
 
+### Upgrading
+
+- Run `/init` in each repository before its next session, or the board MCP server reports `no board here` and the session has no board tools until you do; a board not created is not an empty board.
+
 ### Migration
 
 - `scripts/migrate-memory-board.sh <project> <repo>` moves one project's items from `~/.memory/board/tasks/` into that repository's `.boards/tasks/`, renumbered, with the old id kept as a reference, and commits once. Run it per project; a board not migrated starts empty.

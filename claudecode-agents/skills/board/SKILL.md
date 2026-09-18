@@ -1,6 +1,6 @@
 ---
 name: board
-description: How the board works - its projects and issues, the meaning of the five columns (to do, doing, blocked, blocked by human, done), which columns are written by hooks and which a human-facing assistant writes itself, the `Board-Item:` line that tells a hook which issue a spawn is working on, how the handoff's Decisions needed lines reach the human queue, and what earns a board item at all.
+description: How the board works - its projects and issues, the meaning of the five columns (to do, doing, blocked, blocked by human, done), which columns are written by hooks and which a human-facing assistant writes itself, the checkout's focus (`task_focus`, `/work`) that tells the hooks which issue the work is on, how the handoff's Decisions needed lines reach the human queue, and what earns a board item at all.
 when_to_use: Read before filing, reading, moving, commenting on or closing any board item or project, before spawning a subagent against an item, before reporting board status to the human, and whenever you are deciding whether a piece of work is board work or just a task inside the session.
 ---
 
@@ -110,7 +110,7 @@ Add comments, do not rewrite descriptions. The history of an issue is how a bloc
 
 ## Git
 
-Every write the binary makes is a commit: `git add -- .boards` then `git commit -- .boards` in the main checkout, on whatever branch is checked out there, with a one-line subject such as `board: BD-12 Doing (SubagentStart)` or `board: BD-12 created (fleet-steward)`. The pathspec keeps the human's own staged work out. Nothing pushes; the human's next push carries it. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards` - leaves the file write standing and logs `commit skipped`. Commits happen only when `auto_commit: true` is set in the config - an absent key means no commits - and `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` turns them off for a shell.
+Every write the binary makes is a commit: `git add -- .boards` then `git commit -- .boards` in the main checkout, on whatever branch is checked out there, with a one-line subject such as `board: BD-12 Doing (SubagentStart)` or `board: BD-12 created (fleet-steward)`. The pathspec keeps the human's own staged work out: everything outside `.boards` is left alone; anything inside it, staged or not, goes with the next board commit. Nothing pushes; the human's next push carries it. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards` - leaves the file write standing and logs `commit skipped`. Commits happen only when `auto_commit: true` is set in the config - an absent key means no commits - and `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` turns them off for a shell.
 
 A hook fired inside a coder's worktree resolves to the main checkout, so a feature branch never carries a board change unless a person put one there. Ids are allocated above the highest id in every branch the clone knows, so two contributors do not mint the same one; a clone that has not fetched cannot know, and that is the limit.
 

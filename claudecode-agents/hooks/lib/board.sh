@@ -4,8 +4,8 @@
 # Everything here is written for bash 3.2, because that is what /bin/bash is on
 # macOS: no associative arrays, no ${var,,}, no mapfile, no globstar.
 #
-# The board is the plugin's own binary over a directory of markdown files in
-# the memory tree. There is no endpoint, no token and no network: a status move
+# The board is the plugin's own binary over a directory of markdown files at
+# .boards/ in the repository. There is no endpoint, no token and no network: a status move
 # is one `task edit -s`, a comment is one `task edit --comment`, and a failure
 # is an exit code with its own stderr rather than an errors array smuggled
 # inside a 200. Everything below is the envelope around those calls - the soft
@@ -20,8 +20,8 @@ CLAUDECODE_AGENTS_CONFIG_DIR="${CLAUDECODE_AGENTS_CONFIG_DIR:-$HOME/.config/clau
 CLAUDECODE_AGENTS_STATE_DIR="${CLAUDECODE_AGENTS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claudecode-agents}"
 
 # Defaults for everything the plan did not name. board.env overrides them.
-# The five spellings are the `statuses` list the installer writes into
-# board/config.yml, character for character.
+# The five spellings are the `statuses` list `/init` writes into
+# .boards/config.yml, character for character.
 BOARD_COL_TODO="${BOARD_COL_TODO:-To Do}"
 BOARD_COL_DOING="${BOARD_COL_DOING:-Doing}"
 BOARD_COL_BLOCKED="${BOARD_COL_BLOCKED:-Blocked}"
@@ -187,8 +187,8 @@ board_archive_comment() {
   done
 
   # The board is a directory of files, not a web service, so the id is the
-  # whole address: `board task view BD-12` finds the item from any machine that
-  # has the memory tree. No URL line, because there is no URL to print.
+  # whole address: `board task view BD-12` finds the item from any clone of
+  # this repository. No URL line, because there is no URL to print.
 
   # Same discipline as the session state files: 0700 on the directory, 0600 on
   # the file. Nothing in here is secret, and nothing in here is anyone else's
@@ -225,7 +225,7 @@ board_archive_comment() {
 # ------------------------------------------------------------- item ref parsing
 
 # A ref is a task id (BD-12, bd-12.3, any case), or a task file path under
-# board/tasks/ as the CLI and the web UI hand it back. Nothing else is a ref.
+# .boards/tasks/ as the CLI and the web UI hand it back. Nothing else is a ref.
 normalise_page_id() {
   local raw ident
   raw="$(printf '%s' "$1" | tr -d '\r' | sed -e 's/[?#].*$//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//')"
@@ -443,8 +443,8 @@ board_cap_comment() {
 }
 
 # Whether the binary is about to be called at all. Disabled and dry runs never
-# resolve, so they never spawn the CLI and never touch the memory tree - which
-# is also what keeps the eval suites offline.
+# resolve, so they never spawn the CLI and never touch .boards/ - which is
+# also what keeps the eval suites offline.
 board_would_send() {
   board_disabled && return 1
   [ -n "${BOARD_DRY_RUN:-}" ] && return 1

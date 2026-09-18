@@ -11,13 +11,18 @@
  * never be reused just because its file moved or vanished. No fetch: what
  * the clone has not seen it cannot consult, and that is the accepted limit.
  */
+/** Escapes a string so it can be interpolated into a RegExp literally. */
+export function escapeRegExp(s: string): string {
+	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function listTaskIdsAcrossRefs(repoRoot: string, boardRelPath: string, prefix: string): string[] {
 	const log = Bun.spawnSync(
 		["git", "-C", repoRoot, "log", "--all", "--name-only", "--diff-filter=A", "--format=", "--", `${boardRelPath}/tasks`],
 		{ stdout: "pipe", stderr: "pipe" },
 	);
 	if (log.exitCode !== 0) return [];
-	const idRe = new RegExp(`(?:^|/)(${prefix}-\\d+(?:\\.\\d+)*)(?:[ .-]|$)`, "i");
+	const idRe = new RegExp(`(?:^|/)(${escapeRegExp(prefix)}-\\d+(?:\\.\\d+)*)(?:[ .-]|$)`, "i");
 	const ids = new Set<string>();
 	for (const path of log.stdout.toString().split("\n")) {
 		const m = idRe.exec(path);

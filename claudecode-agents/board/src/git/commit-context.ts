@@ -16,6 +16,20 @@ export function getCommitContext(): CommitContext {
 	return current;
 }
 
-export function clearCommitContext(): void {
+export function setCommitNote(note: string | undefined): void {
+	current = { ...current, note };
+}
+
+/**
+ * Clears the note only. `by` is sticky: a long-lived process such as the MCP
+ * server sets it once at construction and every commit it makes after should
+ * still carry it, so a commit's write completing must not erase who wrote it.
+ */
+export function clearCommitNote(): void {
+	current = { ...current, note: undefined };
+}
+
+/** Clears both `by` and `note`. For tests that want a clean slate. */
+export function resetCommitContext(): void {
 	current = {};
 }

@@ -47,6 +47,10 @@ describe("listTaskIdsAcrossRefs", () => {
 	it("returns nothing outside a repository", () => {
 		expect(listTaskIdsAcrossRefs(tmp, BOARD_DIR, "BD")).toEqual([]);
 	});
+
+	it("treats a regex-special prefix literally instead of throwing or over-matching", () => {
+		expect(listTaskIdsAcrossRefs(repo, BOARD_DIR, "B.D")).toEqual([]);
+	});
 });
 
 describe("generateNextId", () => {

@@ -8,7 +8,8 @@
 import { BOARD_DIR } from "../board-root.ts";
 import { FOCUS_FILE } from "../core/focus.ts";
 import type { BacklogConfig } from "../types/index.ts";
-import { clearCommitContext, getCommitContext } from "./commit-context.ts";
+import { escapeRegExp } from "./branch-ids.ts";
+import { clearCommitNote, getCommitContext } from "./commit-context.ts";
 
 /** The focus file is never part of a board commit; see `src/core/focus.ts`. */
 const EXCLUDE_FOCUS = `:(exclude)${BOARD_DIR}/${FOCUS_FILE}`;
@@ -87,9 +88,10 @@ export class GitOperations {
 	 * commit that cannot be made never leaves .boards sitting in the human's
 	 * index (a mid-merge commit is the case that matters: git refuses a partial
 	 * commit there, and the add must not survive that refusal). The file write
-	 * has already happened either way. The commit context is always cleared
-	 * here, win or lose, so a later write in the same process is never labelled
-	 * with this one's note.
+	 * has already happened either way. The commit note is always cleared here,
+	 * win or lose, so a later write in the same process is never labelled with
+	 * this one's note; `by` is left alone, since a long-lived caller such as the
+	 * MCP server sets it once and every commit it makes should still carry it.
 	 */
 	async commitBoard(note: string, taskId?: string): Promise<boolean> {
 		try {
@@ -116,6 +118,9 @@ export class GitOperations {
 				if (diff.code === 0) return false;
 				const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (commit.code === 0) return true;
+				// Returns the .boards index to HEAD, so a human who had deliberately
+				// staged a .boards change of their own finds it unstaged again but
+				// intact in the working tree, not swallowed by the failed commit.
 				run(this.projectRoot, ["reset", "-q", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (/index\.lock/.test(commit.err)) {
 					await sleep(LOCK_RETRY_MS);
@@ -127,7 +132,7 @@ export class GitOperations {
 			console.error(`board: commit skipped: the index stayed locked for ${LOCK_RETRIES} attempts`);
 			return false;
 		} finally {
-			clearCommitContext();
+			clearCommitNote();
 		}
 	}
 
@@ -146,7 +151,7 @@ export class GitOperations {
 	}
 
 	async commitTaskChange(taskId: string, message: string, _filePath: string): Promise<void> {
-		const note = message.replace(new RegExp(`^(Create|Update) (draft )?${taskId}$`), (_m, verb) =>
+		const note = message.replace(new RegExp(`^(Create|Update) (draft )?${escapeRegExp(taskId)}$`), (_m, verb) =>
 			verb === "Create" ? "created" : "updated",
 		);
 		await this.commitBoard(note, taskId);

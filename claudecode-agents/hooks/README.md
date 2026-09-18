@@ -274,7 +274,7 @@ This hook **fails open**. Bad input, a missing `jq`, an unexpected error: it log
 
 Every board write fails soft: log to stderr, exit 0. The binary being unbuilt, the repository being absent, `jq` not being installed, the item ref being wrong - none of it stops a session.
 
-A board write is also a commit, made by the binary in the main checkout, pathspec-limited to `.boards`, on whatever branch is checked out there, never pushed. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards`, `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` - leaves the file write standing and is logged by the binary to stderr, which `board_cli` captures into `hooks.log`. Look there for `commit skipped` when a card moved but `git log -- .boards` shows nothing.
+A board write is also a commit, made by the binary in the main checkout, pathspec-limited to `.boards`, on whatever branch is checked out there, never pushed. The pathspec is a limit on which paths are recorded, not on staged versus unstaged: everything outside `.boards` is left alone, and anything inside it, staged or not, goes with the next board commit. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards`, `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` - leaves the file write standing and is logged by the binary to stderr, which `board_cli` captures into `hooks.log`. Look there for `commit skipped` when a card moved but `git log -- .boards` shows nothing.
 
 Exactly two things exit 2, and each for its own reason:
 

@@ -38,7 +38,7 @@ The claudecode-agents repo is a Claude Code plugin marketplace named `rzem` with
 ### Prerequisites
 
 - **Claude Code** with plugin support. `claude plugin --help` should list `marketplace` and `install`; if it does not, update Claude Code first.
-- **git**. The claudecode-agents repo is public, so the clone, the marketplace add and background marketplace refreshes all work over plain HTTPS with no credentials. Only pushing changes back needs auth.
+- **git**, 2.31 or later. The claudecode-agents repo is public, so the clone, the marketplace add and background marketplace refreshes all work over plain HTTPS with no credentials. Only pushing changes back needs auth. The board root resolution uses `git rev-parse --path-format=relative`, which needs 2.31.
 - **jq**. Every board hook and the eval runner use it.
 - **python3**. The install script's settings merge and the scope hook's write-path check.
 - **node**. Only for `evals/lib/check-all.sh`, which syntax-checks the workflows and runs their logic tests.
@@ -72,7 +72,7 @@ Append `@<branch-or-tag>` to the claudecode-agents repo reference (`rzem-ai/clau
 
 **The command route.** With the plugin installed (either route above), `/claudecode-agents:init` inside a session does the whole per-project setup in one pass: it merges the three settings keys, copies the CLAUDE.md skeleton and the glossary rule into the project, creates `docs/specs/` and `docs/plans/`, then reads the repo and interviews you to fill every `<FILL: ...>` marker. Re-running it is safe - it skips what already exists and only offers to fill markers still present.
 
-Nothing init writes is live until the next session - settings, `CLAUDE.md` and the plugin itself all load at startup - so init ends by telling you to restart, trust the folder, and run `/claudecode-agents:kickoff`. Kickoff preflights the install (agents present, lead in charge, no markers left, skeleton and work directories in place), then checks the board when the binary answers - `board/config.yml` under the board root, its five statuses, a project for the repo in its `projects` list, the outcome labels - offers to add the repo's project to the config and commit the memory tree, asking before it changes a file four machines share, and ends by stating the conventions: root, the `BD` prefix, status names, project, labels, and the item-ref binding. It cannot tell whether the binary on this machine is current, and says so. On a green preflight it takes the idea you typed after it - or asks for one - and starts the spec pipeline on it. On a red preflight it lists the fixes and stops; declining the board is never red.
+Nothing init writes is live until the next session - settings, `CLAUDE.md` and the plugin itself all load at startup - so init ends by telling you to restart, trust the folder, and run `/claudecode-agents:kickoff`. Kickoff preflights the install (agents present, lead in charge, no markers left, skeleton and work directories in place), then checks the board when the binary answers - `.boards/config.yml` here, its five statuses, the outcome labels, the `.gitignore` - and ends by stating the conventions: root, the `BD` prefix, status names, labels, and the item-ref binding. It cannot tell whether the binary on this machine is current, and says so. On a green preflight it takes the idea you typed after it - or asks for one - and starts the spec pipeline on it. On a red preflight it lists the fixes and stops; declining the board is never red.
 
 **Optional: the project skeleton by hand.** `claudecode-agents/templates/CLAUDE.md` is a project CLAUDE.md with `<FILL: ...>` markers for the things that differ per project, and `claudecode-agents/templates/rules/glossary.md` is the generated glossary rule it refers to. Copy both into the project (`CLAUDE.md` at the root, the rule under `.claude/rules/`) and fill the markers. Never edit the glossary rule by hand - it is generated from the `glossary` skill by `scripts/gen-glossary-rule.sh`.
 
@@ -100,7 +100,9 @@ It is safe to re-run. Unchanged files are left alone and the summary at the end 
 
 ### 3. Secrets and the board
 
-The board needs no secret at all. It is a directory of markdown files under the memory tree at `board/`, written by the plugin's own `board` binary, which the installer builds into `~/.local/bin/board`. The hooks make no network call and read no token; without the binary they log a `board shim missing` or a `board <cmd> failed` line and leave the board alone, and the agents themselves work fine, so a machine that has never built it is a working install.
+The board needs no secret at all. It is a directory of markdown files at `.boards/` in the repository's own main checkout, created by `/init` and committed by the plugin's own `board` binary after every write, which the installer builds into `~/.local/bin/board`. The hooks make no network call and read no token; without the binary they log a `board shim missing` or a `board <cmd> failed` line and leave the board alone, and the agents themselves work fine, so a machine that has never built it is a working install.
+
+A clone without the plugin has the `.boards/` files and no hooks to move them - a readable board nobody moves. That is acceptable.
 
 To render the ten per-agent memory credentials from 1Password:
 
@@ -114,7 +116,7 @@ The `op://` references at the top of `scripts/install-home.sh` are placeholders 
 Knobs, all optional:
 
 - `CLAUDECODE_AGENTS_BOARD_ROOT` points the hooks and the binary at a tree other than `$HOME/.memory`.
-- `~/.config/claudecode-agents/board.env` overrides the column names (`BOARD_COL_TODO`, `BOARD_COL_DOING`, `BOARD_COL_BLOCKED`, `BOARD_COL_BLOCKED_HUMAN`, `BOARD_COL_DONE`) if a tree's `board/config.yml` spells a status differently from the fleet's.
+- `~/.config/claudecode-agents/board.env` overrides the column names (`BOARD_COL_TODO`, `BOARD_COL_DOING`, `BOARD_COL_BLOCKED`, `BOARD_COL_BLOCKED_HUMAN`, `BOARD_COL_DONE`) if a repository's `.boards/config.yml` spells a status differently from the fleet's.
 - `CLAUDECODE_AGENTS_BOARD=off`, or an empty file at `~/.local/state/claudecode-agents/disabled`, switches board writes off without uninstalling anything. `BOARD_DRY_RUN=1` logs what would be written instead of writing it.
 - The three board hooks log to `~/.local/state/claudecode-agents/log/hooks.log` (and to stderr, so it shows in the transcript). Read that first when the board does not move. The scope hook logs to stderr only.
 

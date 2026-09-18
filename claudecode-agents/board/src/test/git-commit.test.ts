@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { BOARD_DIR } from "../board-root.ts";
 import { Core } from "../core/backlog.ts";
 import { FOCUS_FILE, writeFocus } from "../core/focus.ts";
-import { clearCommitContext, setCommitContext } from "../git/commit-context.ts";
+import { resetCommitContext, setCommitContext } from "../git/commit-context.ts";
 import { formatCommitSubject } from "../git/operations.ts";
 
 // Every write the binary makes is committed, pathspec-limited to .boards, on
@@ -40,13 +40,13 @@ beforeEach(() => {
 	git("add", "-A");
 	git("commit", "-q", "-m", "base");
 	delete process.env.CLAUDECODE_AGENTS_BOARD_NO_COMMIT;
-	clearCommitContext();
+	resetCommitContext();
 });
 
 afterEach(() => {
 	rmSync(tmp, { recursive: true, force: true });
 	delete process.env.CLAUDECODE_AGENTS_BOARD_NO_COMMIT;
-	clearCommitContext();
+	resetCommitContext();
 });
 
 describe("formatCommitSubject", () => {
@@ -130,11 +130,16 @@ describe("the binary commits its writes", () => {
 	it("logs and keeps the file when the commit cannot be made at all", async () => {
 		const lock = join(repo, ".git", "index.lock");
 		writeFileSync(lock, "");
-		const core = new Core(repo);
-		const { task } = await core.createTaskFromInput({ title: "First" });
-		rmSync(lock, { force: true });
-		expect(git("log", "-1", "--format=%s")).toBe("base");
-		expect((await core.getTask(task.id))?.title).toBe("First");
+		const errors = spyOn(console, "error").mockImplementation(() => {});
+		try {
+			const core = new Core(repo);
+			const { task } = await core.createTaskFromInput({ title: "First" });
+			rmSync(lock, { force: true });
+			expect(git("log", "-1", "--format=%s")).toBe("base");
+			expect((await core.getTask(task.id))?.title).toBe("First");
+		} finally {
+			errors.mockRestore();
+		}
 	});
 
 	it("commits from a board nested below the repository root", async () => {
@@ -172,6 +177,26 @@ describe("the binary commits its writes", () => {
 		} finally {
 			errors.mockRestore();
 		}
+	});
+
+	it("keeps the writer across commits when by is set once, MCP-style", async () => {
+		setCommitContext({ by: "mcp" });
+		const core = new Core(repo);
+		const { task: first } = await core.createTaskFromInput({ title: "First" });
+		expect(git("log", "-1", "--format=%s")).toBe(`board: ${first.id} created (mcp)`);
+		const { task: second } = await core.createTaskFromInput({ title: "Second" });
+		expect(git("log", "-1", "--format=%s")).toBe(`board: ${second.id} created (mcp)`);
+	});
+
+	it("does not leak one write's note into the next", async () => {
+		setCommitContext({ by: "mcp" });
+		const core = new Core(repo);
+		const { task } = await core.createTaskFromInput({ title: "First" });
+		setCommitContext({ note: "Doing" });
+		await core.updateTaskFromInput(task.id, { status: "Doing" });
+		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} Doing (mcp)`);
+		await core.updateTaskFromInput(task.id, { title: "First, retitled" });
+		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} updated (mcp)`);
 	});
 
 	it("leaves .boards unstaged when a commit fails mid-merge", async () => {
