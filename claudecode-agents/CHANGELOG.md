@@ -6,6 +6,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
+## [0.17.3] - 2026-09-18
+
+The remaining half of GitHub #5.
+
+### Changed
+
+- **The lead spawns `refuter` when a reviewer could not run the gates.** A `reviewer` handoff listing tests, typecheck or build under Unverified is an approve nobody independent has run, and the lead's body now says so and names `refuter` - which runs the suite as its baseline before mutating - as the independent party, reading the review as complete only with that run in hand. `refuter` also joins the lead's routing list, which had never named it.
+
 ## [0.17.2] - 2026-09-18
 
 Three issues filed from one cross-repository run (GitHub #5, #6, #7). One was a hole in the coder guard, one was the harness rather than the plugin, and one was a design the bodies had never explained.

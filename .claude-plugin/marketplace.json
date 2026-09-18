@@ -14,7 +14,7 @@
       "displayName": "Claude Code Agents",
       "source": "./claudecode-agents",
       "description": "A role-shaped subagent fleet: agents, shared skills, the board and its hooks, and workflows.",
-      "version": "0.17.2",
+      "version": "0.17.3",
       "author": {
         "name": "Alex",
         "email": "alex@rzem.com"
