@@ -27,9 +27,14 @@ beforeAll(() => {
 			'statuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]',
 			'default_status: "To Do"',
 			'projects: ["fleet"]',
+			"auto_commit: true",
 			"",
 		].join("\n"),
 	);
+	for (const args of [["init", "-q", "-b", "main"], ["config", "user.email", "t@t"], ["config", "user.name", "t"], ["add", "-A"], ["commit", "-q", "-m", "base"]]) {
+		const p = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+		if (p.exitCode !== 0) throw new Error(p.stderr.toString());
+	}
 });
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -99,5 +104,32 @@ describe("board task", () => {
 		});
 		expect(proc.exitCode).not.toBe(0);
 		expect(proc.stderr.toString()).toContain("CLAUDECODE_AGENTS_BOARD_ROOT");
+	});
+});
+
+function lastSubject(): string {
+	return Bun.spawnSync(["git", "-C", root, "log", "-1", "--format=%s"], { stdout: "pipe" }).stdout.toString().trim();
+}
+
+describe("board task commits with --by", () => {
+	it("a status move commits with the status and the writer", () => {
+		const created = JSON.parse(board("task", "create", "Move me", "--project", "fleet", "--json").out);
+		const id = created.task.id as string;
+		expect(lastSubject()).toBe(`board: ${id} created`);
+		const r = board("task", "edit", id, "-s", "doing", "--by", "SubagentStart");
+		expect(r.code).toBe(0);
+		expect(lastSubject()).toBe(`board: ${id} Doing (SubagentStart)`);
+	});
+
+	it("a comment commits as a comment", () => {
+		const created = JSON.parse(board("task", "create", "Comment me", "--project", "fleet", "--json").out);
+		const id = created.task.id as string;
+		board("task", "edit", id, "--comment", "hello", "--comment-author", "@SubagentStop", "--by", "SubagentStop");
+		expect(lastSubject()).toBe(`board: ${id} comment (SubagentStop)`);
+	});
+
+	it("a create with --by names the writer", () => {
+		const created = JSON.parse(board("task", "create", "Filed", "--project", "fleet", "--by", "fleet-steward", "--json").out);
+		expect(lastSubject()).toBe(`board: ${created.task.id} created (fleet-steward)`);
 	});
 });

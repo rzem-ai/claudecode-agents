@@ -6,6 +6,7 @@ import { Core } from "./core/backlog.ts";
 import { loadTaskDetail, loadTaskListItems } from "./core/task-detail.ts";
 import { printJson, type SearchResultInput, searchJson, taskListJson, taskViewJson } from "./formatters/json-output.ts";
 import { formatTaskPlainText } from "./formatters/task-plain-text.ts";
+import { setCommitContext } from "./git/commit-context.ts";
 import { createMcpServer } from "./mcp/server.ts";
 import { BacklogServer } from "./server/index.ts";
 import type { SearchResult, SearchResultType, TaskCreateInput } from "./types/index.ts";
@@ -91,9 +92,11 @@ task
 	.option("--ac <text>", "acceptance criterion, repeatable", repeat)
 	.option("--plan <text>")
 	.option("--notes <text>")
+	.option("--by <name>", "who is making this write, for the commit subject")
 	.option("--json")
 	.option("--plain")
 	.action(async (title: string, o) => {
+		if (o.by) setCommitContext({ by: o.by });
 		const c = core();
 		const input: TaskCreateInput = {
 			title,
@@ -140,6 +143,7 @@ task
 	.option("--comment <text>", "repeatable", repeat)
 	.option("--comment-author <name>")
 	.option("--final-summary <text>")
+	.option("--by <name>", "who is making this write, for the commit subject")
 	.option("--json")
 	.option("--plain")
 	.action(async (taskId: string, o) => {
@@ -147,6 +151,9 @@ task
 		const current = await c.getTask(taskId);
 		if (!current) fail(`no task ${taskId}`);
 		if (o.comment?.length && !o.commentAuthor) fail("--comment needs --comment-author");
+		if (o.by) setCommitContext({ by: o.by });
+		if (o.status) setCommitContext({ note: await statusOrFail(c, o.status) });
+		else if (o.comment?.length) setCommitContext({ note: "comment" });
 		const args: TaskEditArgs = {
 			title: o.title,
 			description: o.description,
