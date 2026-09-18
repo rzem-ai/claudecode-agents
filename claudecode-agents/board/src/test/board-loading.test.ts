@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { $ } from "bun";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { DEFAULT_DIRECTORIES } from "../constants/index.ts";
 import { Core } from "../core/backlog.ts";
 import type { BacklogConfig, Task } from "../types/index.ts";
@@ -95,8 +97,13 @@ describe("Board Loading with checkActiveBranches", () => {
 		});
 
 		it("should handle empty task list gracefully", async () => {
-			// Remove all tasks
-			await $`rm -rf ${DEFAULT_DIRECTORIES.BACKLOG}/tasks/*`.cwd(TEST_DIR).quiet();
+			// Remove all tasks. Not a shell glob: BACKLOG is now the hidden
+			// directory .boards, and Bun's shell glob refuses to expand `*`
+			// through a dot-prefixed path segment, so `rm -rf .boards/tasks/*`
+			// fails with "no matches found" even though the files are there.
+			const tasksDir = join(TEST_DIR, DEFAULT_DIRECTORIES.BACKLOG, "tasks");
+			await rm(tasksDir, { recursive: true, force: true });
+			await mkdir(tasksDir, { recursive: true });
 
 			const tasks = await core.loadTasks();
 			expect(tasks).toEqual([]);
