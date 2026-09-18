@@ -17,8 +17,8 @@
 #                         fleet-owned tests pass (CHECK_ALL_BOARD_FULL=1 for
 #                         the whole upstream suite, which takes about 5 min)
 #   glossary              the generated rule still matches the canonical skill
-#   versions              plugin.json, the marketplace entry and the newest
-#                         CHANGELOG release carry the same version
+#   versions              plugin.json and the marketplace entry carry the same
+#                         version
 #
 # Usage:  evals/lib/check-all.sh [-v]
 
@@ -119,19 +119,17 @@ else
 fi
 
 # The marketplace listing shows the version in .claude-plugin/marketplace.json,
-# not the one in the plugin's own manifest, and 0.16.0 and 0.17.0 both shipped
-# with the entry still saying 0.15.1. The three numbers move together or the
-# release is not visible.
+# not the one in the plugin's own manifest, so a release whose entry still
+# carries the old number is invisible to clients. The two numbers move
+# together or the release is not visible.
 printf '\n=== versions ===\n'
 if python3 - "$REPO_ROOT" <<'PY'
-import json, re, sys
+import json, sys
 root = sys.argv[1]
 plugin = json.load(open(f"{root}/claudecode-agents/.claude-plugin/plugin.json"))["version"]
 entry = next(p for p in json.load(open(f"{root}/.claude-plugin/marketplace.json"))["plugins"] if p["name"] == "claudecode-agents")["version"]
-m = re.search(r"^## \[(\d+\.\d+\.\d+)\]", open(f"{root}/claudecode-agents/CHANGELOG.md").read(), re.M)
-changelog = m.group(1) if m else None
-print(f"plugin.json {plugin}, marketplace entry {entry}, newest CHANGELOG release {changelog}")
-sys.exit(0 if plugin == entry == changelog else 1)
+print(f"plugin.json {plugin}, marketplace entry {entry}")
+sys.exit(0 if plugin == entry else 1)
 PY
 then
     printf 'versions: ok\n'

@@ -203,7 +203,6 @@ claudecode-agents/
       board.config.yml                # the five statuses, copied to .boards/config.yml by /init
       board.gitignore                 # keeps .boards/.focus out of git
       rules/glossary.md               # generated, do not edit
-    CHANGELOG.md
   evals/                              # one smoke eval per agent, run by claude -p
   evals/lib/check-all.sh              # every deterministic check; no model, no network, no board
   docs/fleet-design.md                # this document

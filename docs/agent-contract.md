@@ -27,7 +27,7 @@ The file is a markdown file with a YAML frontmatter block delimited by `---`. Ev
 
 ### Fields that exist but the fleet does not use
 
-`permissionMode`, `mcpServers` and `hooks` are ignored when an agent is loaded from a plugin, so they never appear in a shared body. An agent that genuinely needs one exists as a local copy under `home/agents/` instead (design section 4). `maxTurns`, `background`, `initialPrompt` and `experimental` are unused; do not add them without a reason recorded in the changelog.
+`permissionMode`, `mcpServers` and `hooks` are ignored when an agent is loaded from a plugin, so they never appear in a shared body. An agent that genuinely needs one exists as a local copy under `home/agents/` instead (design section 4). `maxTurns`, `background`, `initialPrompt` and `experimental` are unused; do not add them without a reason recorded in the commit.
 
 ### 1.3 Where the roster columns do not map cleanly
 

@@ -128,7 +128,7 @@ The plugin is semver'd and the version in `claudecode-agents/.claude-plugin/plug
 claude plugin marketplace update rzem
 ```
 
-The project template sets `autoUpdate: false` deliberately, so a project moves to a new fleet version when you run that and not when a background refresh decides to. `claudecode-agents/CHANGELOG.md` says what changed in each release. For the machine half, `git pull` in the clone and re-run `scripts/install-home.sh`.
+The project template sets `autoUpdate: false` deliberately, so a project moves to a new fleet version when you run that and not when a background refresh decides to. The git history is the record of what changed between versions. For the machine half, `git pull` in the clone and re-run `scripts/install-home.sh`.
 
 ### Checking the install, and working on the claudecode-agents repo
 
@@ -152,7 +152,7 @@ Put the GitHub marketplace back with `claude plugin marketplace add rzem-ai/clau
 
 ```
 .claude-plugin/marketplace.json   the marketplace (name: rzem), one plugin in it
-claudecode-agents/                    the plugin: agents/, skills/, hooks/, workflows/, commands/, templates/, CHANGELOG.md
+claudecode-agents/                    the plugin: agents/, skills/, hooks/, workflows/, commands/, board/, templates/
 evals/                            one smoke eval per agent, plus lib/ with the deterministic suite
 docs/fleet-design.md              the design: what the fleet is and why, in twelve sections
 docs/agent-contract.md            the shape every agent body conforms to
@@ -164,4 +164,4 @@ scripts/                          install-home.sh, gen-glossary-rule.sh, merge-s
 
 ## Where things are decided
 
-The design, [`docs/fleet-design.md`](docs/fleet-design.md), is the canonical document - "design section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against. [`docs/limits.md`](docs/limits.md) is what the fleet deliberately does not enforce or cover, with the reason, so a gap is not mistaken for an oversight. [`claudecode-agents/CHANGELOG.md`](claudecode-agents/CHANGELOG.md) records each release.
+The design, [`docs/fleet-design.md`](docs/fleet-design.md), is the canonical document - "design section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against. [`docs/limits.md`](docs/limits.md) is what the fleet deliberately does not enforce or cover, with the reason, so a gap is not mistaken for an oversight.
