@@ -79,6 +79,11 @@ else
         src/test/no-git.test.ts
         src/test/serve-board.test.ts
         src/test/mcp-serve.test.ts
+        src/test/board-root-git.test.ts
+        src/test/git-commit.test.ts
+        src/test/branch-ids.test.ts
+        src/test/focus.test.ts
+        src/test/mcp-focus.test.ts
     )
     BOARD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-all-board.XXXXXX")
     board_failed=0

@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { resolveBoardRoot } from "./board-root.ts";
 import { generateKanbanBoardWithMetadata } from "./board.ts";
 import { Core } from "./core/backlog.ts";
+import { clearFocus, readFocus, writeFocus } from "./core/focus.ts";
 import { loadTaskDetail, loadTaskListItems } from "./core/task-detail.ts";
 import { printJson, type SearchResultInput, searchJson, taskListJson, taskViewJson } from "./formatters/json-output.ts";
 import { formatTaskPlainText } from "./formatters/task-plain-text.ts";
@@ -267,6 +268,35 @@ program
 		const portArg = o.port ?? process.env.CLAUDECODE_AGENTS_BOARD_PORT;
 		const host = o.host ?? process.env.CLAUDECODE_AGENTS_BOARD_HOST;
 		await server.start(portArg !== undefined && portArg !== "" ? Number(portArg) : undefined, false, { host });
+	});
+
+program
+	.command("focus [taskId]")
+	.description("the item this checkout's sessions are on: set it, --show it, or --clear it")
+	.option("--show", "print the current focus, or nothing")
+	.option("--clear", "forget the focus")
+	.action(async (taskId: string | undefined, o) => {
+		const root = (() => {
+			try {
+				return resolveBoardRoot();
+			} catch (error) {
+				fail(error instanceof Error ? error.message : String(error));
+			}
+		})();
+		if (o.clear) {
+			clearFocus(root);
+			return;
+		}
+		if (o.show || !taskId) {
+			const current = readFocus(root);
+			if (current) console.log(current);
+			return;
+		}
+		const c = new Core(root);
+		const task = await c.getTask(taskId);
+		if (!task) fail(`no task ${taskId} on this board; focus takes an id that exists`);
+		writeFocus(root, task.id);
+		console.log(task.id);
 	});
 
 program.parseAsync(process.argv).catch((error) => fail(error instanceof Error ? error.message : String(error)));

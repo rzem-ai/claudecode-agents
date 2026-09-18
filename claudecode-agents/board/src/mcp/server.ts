@@ -12,11 +12,13 @@ import {
 	ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Core } from "../core/backlog.ts";
+import { setCommitContext } from "../git/commit-context.ts";
 import { BacklogServer } from "../server/index.ts";
 import { getPackageName } from "../utils/app-info.ts";
 import { getVersion } from "../utils/version.ts";
 import { registerDefinitionOfDoneTools } from "./tools/definition-of-done/index.ts";
 import { registerDocumentTools } from "./tools/documents/index.ts";
+import { registerFocusTools } from "./tools/focus/index.ts";
 import { registerMilestoneTools } from "./tools/milestones/index.ts";
 import { registerServeTools } from "./tools/serve/index.ts";
 import { registerTaskTools } from "./tools/tasks/index.ts";
@@ -42,7 +44,7 @@ import type {
  */
 const APP_NAME = getPackageName();
 const INSTRUCTIONS =
-	"This is the fleet's board. Read items with task_view, task_list and task_search; add a comment with task_edit; never move an item's status, the fleet's hooks own that.";
+	"This is the repository's board, under .boards/ in the main checkout. Read items with task_view, task_list and task_search; add a comment with task_edit; say which item a phase is on with task_focus; never move an item's status, the fleet's hooks own that.";
 
 type ServerInitOptions = {
 	debug?: boolean;
@@ -324,11 +326,13 @@ export async function createMcpServer(projectRoot: string, options: ServerInitOp
 
 	const server = new McpServer(projectRoot, INSTRUCTIONS, version);
 
+	setCommitContext({ by: "mcp" });
 	registerTaskTools(server, config);
 	registerMilestoneTools(server);
 	registerDefinitionOfDoneTools(server);
 	registerDocumentTools(server, config);
 	registerServeTools(server);
+	registerFocusTools(server);
 
 	if (options.debug) {
 		console.error("MCP server initialised (stdio transport only).");
