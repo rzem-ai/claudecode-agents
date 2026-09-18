@@ -4,7 +4,9 @@
 # One-shot: move the items filed under PROJECT in the memory tree's board into
 # REPO's .boards/tasks/, renumbered from the next free id there in creation
 # order, with the old id kept as a reference, and commit once. The memory
-# tree is read, never written; delete its board/ by hand when satisfied.
+# tree is read, never written; delete its board/ by hand when satisfied. A
+# rerun skips items already present in REPO (matched by their memory-tree
+# reference), so it is safe to run twice.
 set -euo pipefail
 
 project="${1:?usage: migrate-memory-board.sh PROJECT REPO}"
@@ -30,10 +32,16 @@ done < <(
 )
 
 moved=0
+filed=0
 # Creation order: the old id's number, ascending.
 while IFS= read -r file; do
     grep -qiE "^project: *[\"']?${project}[\"']?\s*$" "$file" || continue
+    filed=$((filed + 1))
     oldid="$(sed -n 's/^id: *//p' "$file" | head -1)"
+    if grep -rqF -- "  - memory-tree ${oldid}" "$repo/.boards/tasks"; then
+        printf 'skip %s: already migrated\n' "$oldid"
+        continue
+    fi
     # title may be a plain scalar or a YAML block scalar (>- or |-) spanning
     # several indented lines; join those into one string for the slug.
     title="$(awk '
@@ -105,7 +113,14 @@ while IFS= read -r file; do
     moved=$((moved + 1))
 done < <(ls "$old/tasks"/*.md | sort -t- -k2,2n)
 
-[ "$moved" -gt 0 ] || { echo "nothing filed under project '$project' in $old/tasks"; exit 0; }
+if [ "$moved" -eq 0 ]; then
+    if [ "$filed" -eq 0 ]; then
+        echo "nothing filed under project '$project' in $old/tasks"
+    else
+        echo "all $filed items of project '$project' already migrated into $repo"
+    fi
+    exit 0
+fi
 git -C "$repo" add -- .boards
 git -C "$repo" commit -q -m "board: ${moved} items migrated from the memory tree's board (project ${project})" -- .boards
 printf 'committed %s items into %s\n' "$moved" "$repo"
