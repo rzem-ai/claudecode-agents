@@ -46,7 +46,6 @@ default_status: "To Do"
 labels: ["outcome/shipped", "outcome/abandoned", "outcome/superseded"]
 projects: ["Agents", "Angus", "art.rzem.guru", "Claude Agents", "Fathom", "files.rzem.ai", "MovingDay", "MyAssist Researcher", "OpenCode Agents", "Photos", "photos.rzem.ai", "SkillfulClaude", "Tabletop", "Tailwind Builder"]
 priorities: ["High", "Medium", "Low"]
-default_port: 6420
 ```
 
 The project list is the fourteen Linear projects as they stand today, for the human to trim in the config file. The key spellings are upstream's, kept so the carried parser reads them unchanged.
@@ -111,13 +110,13 @@ The identifier cases move from `RZE-123`, a Linear URL and a UUID to `BD-12`, `b
 
 **The Linear connector** stays installed until the human removes it; no fleet body names it after this lands.
 
-## 8. The web UI on slarti
+## 8. The web UI, per instance
 
-The web UI runs on slarti as a systemd unit in the house shape: `board.service` under `/srv/sprites/services/board/`, symlinked into `/etc/systemd/system`, running as the user that owns `~/.memory` there, with `CLAUDECODE_AGENTS_BOARD_ROOT=/home/<user>/.memory` and `~/.local/bin/board serve --port 6420`, which binds `127.0.0.1` and nothing else. Restart on failure. The unit is not a compose wrapper, so `systemctl stop` is safe.
+Revised 18 September 2026, after the human read the earlier version of this section for the first time: there is no shared web UI and no slarti unit. The UI is per Claude Code instance. It runs inside the session's own board MCP process, started only when the human asks with the `/board` command, which calls the server's `board_serve` tool; that binds `127.0.0.1` on a port the kernel picks, returns the URL, and is idempotent. `board_url` reports the URL without starting anything. The UI stops when the MCP server stops, which is when the session ends. Nothing depends on it: the task tools and the hooks read and write the files directly whether or not it is up, so a session that never runs `/board` has a fully working board with no viewer.
 
-It is published as `board.rzem.ai` by recipe 1 of the homelab skill (a tunnel rule and an nginx vhost proxying to `127.0.0.1:6420`) and gated by recipe 2 (the `auth_request` block to oauth2-proxy and Keycloak). The vhost carries the WebSocket upgrade headers in case the UI's live refresh uses one; that costs nothing and the page works without it.
+The standalone form survives as the override, for the human and never for an agent: `board serve --host <interface> --port <n>`, with `CLAUDECODE_AGENTS_BOARD_HOST` and `CLAUDECODE_AGENTS_BOARD_PORT` as the environment equivalents and `default_port` in the config as the last fallback before random. The shipped config sets no port. The `board.rzem.ai` vhost, the tunnel rule and the gate from the earlier design are not built.
 
-An edit in the browser lands in slarti's clone and reaches the other machines through the sync. The UI reads slarti's clone, so the board the human sees is at most one sync window behind a hook on another machine.
+The UI reads whichever tree the MCP server was pointed at, so what the human sees is exactly the state the instance it is connected to sees. Where that tree lives is the open question the human has said comes next.
 
 ## 9. Install and environment
 
@@ -143,7 +142,7 @@ The memory tree itself gains the `board/` directory and its config file through 
 1. **The package.** Import upstream at the pinned commit into `claudecode-agents/board/`, remove what is not carried with the compiler and upstream's own tests as the gate, replace root resolution, write the thin CLI, build a binary. Section 15.
 2. **The repo and the hooks.** Board scope, config template, installer changes, `board.sh`, the three hooks, the contract suite green with the live case, on marvin first and then the three lab boxes.
 3. **Agents and docs.** The plugin MCP server, the confirmed tool identifiers, the three bodies, the skills, kickoff, the contract doc, the plan's revision paragraph, the changelog, a release.
-4. **The web UI.** The slarti unit, the vhost, the gate, the tunnel rule.
+4. **The web UI.** The `board_serve` and `board_url` tools, the `/board` command, the random loopback port with the host and port overrides. No unit, no vhost, no gate.
 5. **The human queue digest.** Twice a day and the four-hour escalation were designed in the plan and never built. They read the queue with one `task list --json` and need a delivery channel chosen first. Separate design.
 
 Phases 1 to 3 are one release. Phase 4 is lab work that follows the homelab recipes and does not touch the plugin. Phase 5 is its own spec.
@@ -170,7 +169,7 @@ Migrating any Linear history. The human queue digest and escalation (phase 4). A
 - Auto-commit off, remote operations off, active-branch checking off. The sync agent is the only committer and the board repo is only ever on main.
 - The `board_write` and `board_comment` seam is kept; the library underneath is replaced and renamed.
 - The MCP server ships with the plugin and is granted to the same three agents as Linear was, with the same read-versus-write split.
-- The web UI runs on slarti behind the tunnel and the gate, in phase 3, as `board.rzem.ai`.
+- The web UI is per Claude Code instance, inside the session's MCP process, started by `/board` on a random loopback port; the shared instance on slarti is not built (revised 18 September 2026).
 - The digest is phase 5 and its own spec.
 - The pertinent parts of Backlog.md are carried into the plugin under MIT, at one pinned commit, with attribution kept. The upstream binary and package are not a dependency of anything.
 - The binary is built per machine by the installer into `~/.local/bin/board`; hooks and the MCP server reach it through one shim in the plugin; the board root comes from one environment variable with one default.

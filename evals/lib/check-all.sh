@@ -78,6 +78,7 @@ else
         src/test/cli-board-behaviour.test.ts
         src/test/no-git.test.ts
         src/test/serve-board.test.ts
+        src/test/mcp-serve.test.ts
     )
     BOARD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-all-board.XXXXXX")
     board_failed=0

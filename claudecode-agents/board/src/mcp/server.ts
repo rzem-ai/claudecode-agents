@@ -12,11 +12,13 @@ import {
 	ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Core } from "../core/backlog.ts";
+import { BacklogServer } from "../server/index.ts";
 import { getPackageName } from "../utils/app-info.ts";
 import { getVersion } from "../utils/version.ts";
 import { registerDefinitionOfDoneTools } from "./tools/definition-of-done/index.ts";
 import { registerDocumentTools } from "./tools/documents/index.ts";
 import { registerMilestoneTools } from "./tools/milestones/index.ts";
+import { registerServeTools } from "./tools/serve/index.ts";
 import { registerTaskTools } from "./tools/tasks/index.ts";
 import type {
 	CallToolResult,
@@ -46,10 +48,22 @@ type ServerInitOptions = {
 	debug?: boolean;
 };
 
+/** What board_serve and board_url return. */
+export type WebUiStatus = {
+	running: boolean;
+	url: string | null;
+	host: string | null;
+	port: number | null;
+};
+
 export class McpServer extends Core {
 	private readonly server: Server;
 	private transport?: StdioServerTransport;
 	private stopping = false;
+
+	/** The session's web UI, started by board_serve and stopped with this server. Null until asked for. */
+	private webUi: BacklogServer | null = null;
+	private webUiStarting: Promise<WebUiStatus> | null = null;
 
 	private readonly tools = new Map<string, McpToolHandler>();
 	private readonly resources = new Map<string, McpResourceHandler>();
@@ -91,6 +105,41 @@ export class McpServer extends Core {
 	 */
 	public addTool(tool: McpToolHandler): void {
 		this.tools.set(tool.name, tool);
+	}
+
+	/** Where the web UI is, without starting it. */
+	public webUiStatus(): WebUiStatus {
+		const url = this.webUi?.url ?? null;
+		if (!this.webUi || url === null) return { running: false, url: null, host: null, port: null };
+		return { running: true, url, host: this.webUi.host, port: this.webUi.port };
+	}
+
+	/**
+	 * Start the web UI on a random loopback port if it is not running, and
+	 * report where it is. Idempotent, and two overlapping calls share one
+	 * start. Quiet, because stdout here is the MCP transport.
+	 */
+	public async startWebUi(): Promise<WebUiStatus> {
+		if (this.webUi?.url) return this.webUiStatus();
+		if (this.webUiStarting) return this.webUiStarting;
+		const ui = new BacklogServer(this.filesystem.rootDir);
+		this.webUiStarting = ui
+			.start(0, false, { quiet: true })
+			.then(() => {
+				this.webUi = ui;
+				return this.webUiStatus();
+			})
+			.finally(() => {
+				this.webUiStarting = null;
+			});
+		return this.webUiStarting;
+	}
+
+	/** Stop the web UI if it is running. Safe to call when it is not. */
+	public async stopWebUi(): Promise<void> {
+		const ui = this.webUi;
+		this.webUi = null;
+		if (ui) await ui.stop();
 	}
 
 	/**
@@ -139,6 +188,7 @@ export class McpServer extends Core {
 		}
 		this.stopping = true;
 		try {
+			await this.stopWebUi();
 			await this.server.close();
 		} finally {
 			this.transport = undefined;
@@ -278,6 +328,7 @@ export async function createMcpServer(projectRoot: string, options: ServerInitOp
 	registerMilestoneTools(server);
 	registerDefinitionOfDoneTools(server);
 	registerDocumentTools(server, config);
+	registerServeTools(server);
 
 	if (options.debug) {
 		console.error("MCP server initialised (stdio transport only).");

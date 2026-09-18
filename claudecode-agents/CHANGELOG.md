@@ -6,6 +6,20 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
+## [0.18.0] - 2026-09-18
+
+The board's web UI becomes per Claude Code instance, and the shared instance on slarti is dropped before it was ever built.
+
+### Added
+
+- **`board_serve` and `board_url` on the board MCP server.** `board_serve` starts the web UI inside the session's own MCP process on a random loopback port and returns `{running, url, host, port}`; it is idempotent, two overlapping calls share one start, and the UI stops when the MCP server stops, which is when the session ends. `board_url` reports the same without starting anything. The server is twenty-one tools.
+- **The `/board` command.** Calls `board_serve` and prints the URL, saying it is loopback-only and ends with the session. It refuses to start `board serve` from Bash as a substitute, because a server outside the MCP process outlives the session and answers to nobody.
+- **`board serve --host <h>` and a random default port.** Port precedence is the flag, `CLAUDECODE_AGENTS_BOARD_PORT`, `default_port` in the config, then 0 - the kernel picks. Host precedence is the flag, `CLAUDECODE_AGENTS_BOARD_HOST`, then `127.0.0.1`. `BacklogServer` exposes `host`, `port` and `url`, and `start` takes a `quiet` option so nothing is printed to stdout inside an MCP process, where stdout is the protocol.
+
+### Changed
+
+- **No shared web UI.** The spec's section 8 (the slarti systemd unit, the `board.rzem.ai` vhost, the tunnel rule and the gate) is revised to the per-instance design; none of it is built. The shipped `board.config.yml` no longer sets `default_port`, so a fresh tree serves on a random port. The board skill's CLI table and a new paragraph describe the per-session UI; the hooks README no longer cites the slarti unit. Seven new tests cover the random port, the host override, the two tools and the stop-with-session behaviour, and `check-all.sh` runs the new MCP test file.
+
 ## [0.17.3] - 2026-09-18
 
 The remaining half of GitHub #5.

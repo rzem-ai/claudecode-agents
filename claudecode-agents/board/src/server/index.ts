@@ -209,15 +209,16 @@ export function markHtmlBundleNoStore(bundle: Bun.HTMLBundle): Bun.HTMLBundle {
 
 const spaIndexHtml = markHtmlBundleNoStore(indexHtml);
 const BUNDLE_ASSET_DIR_ENV = "BACKLOG_BUNDLE_ASSET_DIR";
-const BROWSER_HOST = "127.0.0.1";
+/** The interface the web UI binds unless a caller overrides it. Loopback: the UI is per instance, for the human at the keyboard. */
+export const DEFAULT_HOST = "127.0.0.1";
 const MIN_PORT = 1;
 const MAX_PORT = 65535;
 
-export async function isPortAvailable(port: number): Promise<boolean> {
+export async function isPortAvailable(port: number, host = DEFAULT_HOST): Promise<boolean> {
 	if (!Number.isInteger(port) || port < MIN_PORT || port > MAX_PORT) return false;
 	return new Promise((resolve) => {
 		const srv = net.createServer();
-		srv.listen(port, BROWSER_HOST, () => srv.close(() => resolve(true)));
+		srv.listen(port, host, () => srv.close(() => resolve(true)));
 		srv.on("error", () => resolve(false));
 	});
 }
@@ -250,6 +251,22 @@ export class BacklogServer {
 	private taskBroadcastTimer?: ReturnType<typeof setTimeout>;
 	private pendingDataBroadcastScope: "tasks" | "milestones" = "tasks";
 	private storeReadyBroadcasted = false;
+	private boundHost = DEFAULT_HOST;
+
+	/** The host the running server is bound to. */
+	get host(): string {
+		return this.boundHost;
+	}
+
+	/** The port the running server is bound to - the kernel's pick when started with port 0 - or 0 when not running. */
+	get port(): number {
+		return this.server?.port ?? 0;
+	}
+
+	/** The URL to open, or null when not running. */
+	get url(): string | null {
+		return this.server ? `http://${this.boundHost}:${this.port}` : null;
+	}
 
 	constructor(projectPath: string) {
 		this.core = new Core(projectPath, { enableWatchers: true });
@@ -371,24 +388,31 @@ export class BacklogServer {
 		}
 	}
 
-	async start(port?: number, _openBrowser = true): Promise<void> {
+	/**
+	 * Start the web UI. Port precedence: the argument, then the config's
+	 * `default_port`, then 0 - a random free port. `quiet` suppresses the
+	 * console banner, which matters inside an MCP process where stdout is the
+	 * protocol.
+	 */
+	async start(port?: number, _openBrowser = true, options: { host?: string; quiet?: boolean } = {}): Promise<void> {
 		// Prevent duplicate starts (e.g., accidental re-entry)
 		if (this.server) {
-			console.log("Server already running");
+			if (!options.quiet) console.log("Server already running");
 			return;
 		}
+		this.boundHost = options.host?.trim() || DEFAULT_HOST;
 		this._stopping = false;
 		// Load config (migration is handled globally by CLI)
 		const config = await this.core.filesystem.loadConfig();
 
-		// Use config default port if no port specified
-		const finalPort = port ?? config?.defaultPort ?? 6420;
+		// The argument, then the config's default_port, then a random free port.
+		const finalPort = port ?? config?.defaultPort ?? 0;
 		this.projectName = config?.projectName || "Untitled Project";
 
 		try {
 			const serveOptions = {
 				port: finalPort,
-				hostname: BROWSER_HOST,
+				hostname: this.boundHost,
 				development: process.env.NODE_ENV === "development",
 				routes: {
 					"/": spaIndexHtml,
@@ -540,13 +564,14 @@ export class BacklogServer {
 				this.restoreRuntimeWorkingDirectory();
 				throw error;
 			}
-			const url = `http://${BROWSER_HOST}:${finalPort}`;
-			console.log(`🚀 Board browser interface running at ${url}`);
-			console.log(`📊 Project: ${this.projectName}`);
-			const stopKey = process.platform === "darwin" ? "Cmd+C" : "Ctrl+C";
-			console.log(`⏹️  Press ${stopKey} to stop the server`);
+			if (!options.quiet) {
+				console.log(`🚀 Board browser interface running at ${this.url}`);
+				console.log(`📊 Project: ${this.projectName}`);
+				const stopKey = process.platform === "darwin" ? "Cmd+C" : "Ctrl+C";
+				console.log(`⏹️  Press ${stopKey} to stop the server`);
 
-			console.log("💡 Open your browser and navigate to the URL above");
+				console.log("💡 Open your browser and navigate to the URL above");
+			}
 		} catch (error) {
 			// Handle port already in use error
 			const errorCode = (error as { code?: string })?.code;

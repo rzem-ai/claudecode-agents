@@ -46,3 +46,43 @@ describe("board serve", () => {
 		expect(await res.json()).toEqual(["To Do", "Doing", "Blocked", "Blocked by human", "Done"]);
 	});
 });
+
+// Per instance means a port nobody has to pick: port 0 asks the kernel for a
+// free one, and the server has to be able to say which it got. The bind stays
+// on the loopback interface unless the caller overrides the host.
+describe("board serve on a random port", () => {
+	it("binds a random loopback port when asked for port 0 and reports it", async () => {
+		const own = new BacklogServer(root);
+		try {
+			await own.start(0, false, { quiet: true });
+			expect(own.port).toBeGreaterThan(0);
+			expect(own.port).not.toBe(port);
+			expect(own.host).toBe("127.0.0.1");
+			expect(own.url).toBe(`http://127.0.0.1:${own.port}`);
+			const res = await fetch(`${own.url}/api/statuses`);
+			expect(res.status).toBe(200);
+		} finally {
+			await own.stop();
+		}
+	});
+
+	it("reports no url before it starts and none after it stops", async () => {
+		const own = new BacklogServer(root);
+		expect(own.url).toBeNull();
+		await own.start(0, false, { quiet: true });
+		expect(own.url).not.toBeNull();
+		await own.stop();
+		expect(own.url).toBeNull();
+	});
+
+	it("honours a host override", async () => {
+		const own = new BacklogServer(root);
+		try {
+			await own.start(0, false, { host: "localhost", quiet: true });
+			expect(own.host).toBe("localhost");
+			expect(own.url).toBe(`http://localhost:${own.port}`);
+		} finally {
+			await own.stop();
+		}
+	});
+});

@@ -122,6 +122,8 @@ Every write goes through the `board` binary, reached by the shim at `${CLAUDE_PL
 | `board task search <query>` | `--type t`, `--limit n`, `--json`, `--plain` |
 | `board export` | none - the whole board as a markdown table on stdout |
 | `board mcp` | none - the MCP server on stdio |
-| `board serve` | `--port n` (default 6420), bound to `127.0.0.1` |
+| `board serve` | `--port n`, `--host h` - random port on `127.0.0.1` unless overridden by the flag, `CLAUDECODE_AGENTS_BOARD_PORT`/`_HOST`, or `default_port` in the config |
 
 `--dep`, `--ac`, `--check-ac`, `--uncheck-ac`, `--remove-ac`, `--ref`, `--add-label`, `--remove-label`, `--append-plan`, `--append-notes` and `--comment` repeat, as do `list --status` and `search --type`; `-a` and `-l` take a comma-separated list or repeat. `-s` on `create` and `edit` takes one status, not a list. `--json` returns a versioned document whose `kind` is `task-view`, `task-list` or `search`, and a comment's text is its `body` field. There is no `--cwd` and no walk up from the working directory: the root comes from the environment variable alone.
+
+**The web UI is per session, and optional.** The `/board` command calls the MCP server's `board_serve` tool, which starts the UI inside that session's own MCP process on a random loopback port and returns the URL; `board_url` reports it without starting anything. It stops when the session's MCP server stops. Nothing about the board depends on it: the task tools and the hooks read and write the files directly. Never start `board serve` from Bash as a substitute for `/board` - a server outside the MCP process outlives the session.

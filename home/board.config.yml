@@ -7,4 +7,3 @@ default_status: "To Do"
 labels: ["outcome/shipped", "outcome/abandoned", "outcome/superseded"]
 projects: ["Agents", "Angus", "art.rzem.guru", "Claude Agents", "Fathom", "files.rzem.ai", "MovingDay", "MyAssist Researcher", "OpenCode Agents", "Photos", "photos.rzem.ai", "SkillfulClaude", "Tabletop", "Tailwind Builder"]
 priorities: ["High", "Medium", "Low"]
-default_port: 6420
