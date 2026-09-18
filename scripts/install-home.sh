@@ -2,7 +2,7 @@
 #
 # install-home.sh - put the fleet's user-scope files on this machine.
 #
-# Three jobs, plan section 10 and section 12:
+# Three jobs, design sections 10 and 12:
 #
 #   1. Copy `home/` into `~/.claude` - settings.json, CLAUDE.md, rules/ and any
 #      local agent copies. Copies, never symlinks: Cowork skips a symlinked

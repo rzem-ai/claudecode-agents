@@ -270,8 +270,8 @@ page_id_from_task_title() {
 #
 # The board is the plugin's own binary, reached through one shim, and the
 # binary finds the board itself: the main checkout's .boards/ of the repository
-# containing its working directory, never a linked worktree's copy (see
-# docs/2026-09-18-project-boards.md section 3). So the one thing this library
+# containing its working directory, never a linked worktree's copy (design
+# section 7). So the one thing this library
 # owes it is the right working directory - BOARD_CWD, the cwd each hook reads
 # from its input - and an inherited CLAUDECODE_AGENTS_BOARD_ROOT is left alone
 # for the contract suite and the rare deliberate override. There is no default

@@ -2,9 +2,9 @@
 #
 # gen-glossary-rule.sh - generate claudecode-agents/templates/rules/glossary.md from the glossary skill.
 #
-# Plan section 8: the glossary has to exist in three places at once - preloaded
-# into every agent, loaded unconditionally at project scope, and published to
-# the project rule. Only one of the two is edited. This script makes the second.
+# Design section 8: the glossary has to exist in two places at once - preloaded
+# into every agent, and loaded unconditionally at project scope as a rule.
+# Only one of the two is edited. This script makes the second.
 #
 #   source  claudecode-agents/skills/glossary/SKILL.md   (canonical, hand edited)
 #   target  claudecode-agents/templates/rules/glossary.md  (generated, never edited)

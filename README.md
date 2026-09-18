@@ -2,7 +2,7 @@
 
 A personal Claude Code subagent fleet: ten role-shaped agents delegated to from a Claude Code session, the skills they share, the hooks that keep the board honest, the board itself, and the evals that catch a regression before a model release does. The claudecode-agents repo is a Claude Code plugin marketplace with one plugin, and it is the single source of truth - every machine and cloud session that runs the fleet gets it from here.
 
-The agents are roles, not personas: disposable by design, with fresh context on every spawn and their memory on a server rather than in their heads. The fleet also maintains itself - a `fleet-steward` agent watches model releases and files PRs against the claudecode-agents repo, and most substantial changes here were produced by the fleet's own workflows, then reviewed the same way any other change would be.
+The agents are roles, not personas: disposable by design, with fresh context on every spawn and their memory on a server rather than in their heads. The fleet also maintains itself: a `fleet-steward` agent watches model releases and files PRs against the claudecode-agents repo.
 
 ## The fleet
 
@@ -19,7 +19,7 @@ The agents are roles, not personas: disposable by design, with fresh context on 
 | `researcher` | Fan-out reading and synthesis with citations |
 | `fleet-steward` | Weekly model and tooling sweep. Files PRs, never merges |
 
-Each body in [`claudecode-agents/agents/`](claudecode-agents/agents/) carries its model, effort, tool allowlist, preloaded skills and invariants; the reasoning behind every choice is in the plan, section 4.
+Each body in [`claudecode-agents/agents/`](claudecode-agents/agents/) carries its model, effort, tool allowlist, preloaded skills and invariants; the reasoning behind every choice is in the fleet design, section 4.
 
 ## How it works
 
@@ -154,15 +154,14 @@ Put the GitHub marketplace back with `claude plugin marketplace add rzem-ai/clau
 .claude-plugin/marketplace.json   the marketplace (name: rzem), one plugin in it
 claudecode-agents/                    the plugin: agents/, skills/, hooks/, workflows/, commands/, templates/, CHANGELOG.md
 evals/                            one smoke eval per agent, plus lib/ with the deterministic suite
-docs/fleet-plan.md                the plan: what the fleet is and why, in fifteen sections
+docs/fleet-design.md              the design: what the fleet is and why, in twelve sections
 docs/agent-contract.md            the shape every agent body conforms to
-docs/runs/                        run articles, one per substantial run
-docs/plans/                       per-issue implementation plans (the glossary kind, not the fleet plan)
-docs/TODO.md                      open items each round has deliberately left, with the reason
+docs/limits.md                    what the fleet deliberately does not enforce or cover, and why
+docs/runs/                        the run-article convention; the articles themselves live in project repos
 home/                             user-scope files the install script places
 scripts/                          install-home.sh, gen-glossary-rule.sh, merge-settings.py
 ```
 
 ## Where things are decided
 
-The plan, [`docs/fleet-plan.md`](docs/fleet-plan.md), is the canonical document - "plan section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against, and it records which preloaded skill names are still forward references. [`claudecode-agents/CHANGELOG.md`](claudecode-agents/CHANGELOG.md) records every release, corrections included. And [`docs/TODO.md`](docs/TODO.md) is the open-items list: what each round has looked at and deliberately chosen to leave, with the reason.
+The design, [`docs/fleet-design.md`](docs/fleet-design.md), is the canonical document - "design section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against. [`docs/limits.md`](docs/limits.md) is what the fleet deliberately does not enforce or cover, with the reason, so a gap is not mistaken for an oversight. [`claudecode-agents/CHANGELOG.md`](claudecode-agents/CHANGELOG.md) records each release.

@@ -1,6 +1,6 @@
 # Evals
 
-One smoke eval per agent, ten in total. The glossary defines an eval as three to five prompts, a rubric and a baseline score, run in CI on every definition change. Every eval here has that shape, and `evals/lib/roster-contract.sh` checks the prompt count rather than leaving this sentence to assert it - the refuter's eval shipped with two while this line said otherwise, and nothing was watching. The CI half is not wired up yet; **In CI** below says what to wire.
+One smoke eval per agent, ten in total. The glossary defines an eval as three to five prompts, a rubric and a baseline score, run in CI on every definition change. Every eval here has that shape, and `evals/lib/roster-contract.sh` checks the prompt count rather than leaving this sentence to assert it. The CI half is not wired up yet; **In CI** below says what to wire.
 
 An eval is not a quality measure. It is a smoke test for the failures that actually matter for one agent - the reviewer editing instead of reporting, the scout returning opinions, the steward merging its own proposal - plus one check every agent shares, because three hooks parse the handoff format and a body that drifts off it breaks the board rather than just reading badly.
 

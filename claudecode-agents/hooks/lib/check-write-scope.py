@@ -42,7 +42,7 @@ is not a scope that has been satisfied.
 
 Not covered here: writes made by a program the agent runs through Bash, and a
 symlink swapped between this check and the write itself. Both need filesystem
-containment; see R01 in docs/2026-09-09-fleet-review-resolution.md.
+containment, which no shell-level check provides; see docs/limits.md.
 """
 
 import json

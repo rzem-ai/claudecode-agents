@@ -1,4 +1,4 @@
-// The git layer, carried back in part on 18 September 2026 (docs/2026-09-18-project-boards.md).
+// The git layer, carried in part from upstream Backlog.md.
 //
 // Only what a board that commits its own writes needs: add and commit,
 // pathspec-limited to the board directory, an index-lock retry, and the

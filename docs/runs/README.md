@@ -2,8 +2,6 @@
 
 A run article is the readable account of one piece of work: what was tried and abandoned, what the constraint turned out to be, what surprised whoever did it, and what to do differently. It is written by the agent that did the work, when the lead asked for one in the spawn prompt, and it exists because the handoff cannot carry any of that. The format, the length and the writing rules are in `claudecode-agents/skills/run-article/SKILL.md`; this file is the convention for the directory.
 
-`2026-09-08-coder-handoff-format-divergence.md` is the worked example. Read it before writing your first one.
-
 ## The filename
 
 ```

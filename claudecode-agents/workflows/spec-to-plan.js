@@ -23,7 +23,7 @@ export const meta = {
 //   Stage "spec": recall, locate, build the interview brief, draft the spec.
 //     The human is interviewed in session, not here. They then edit the file and
 //     changes its status line to approved. That edit is the gate: the eval
-//     behind plan section 13 put developer-written specs at +4% task success
+//     cited in the fleet design put developer-written specs at +4% task success
 //     and LLM-written ones at -3% for 20% more cost, so the draft exists to be
 //     corrected, not to be accepted.
 //
