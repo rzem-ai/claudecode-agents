@@ -6,8 +6,12 @@
 // else upstream's layer did stay out; the methods Core still calls for those
 // return empty rather than throwing, so filesystem-only reads are unchanged.
 import { BOARD_DIR } from "../board-root.ts";
+import { FOCUS_FILE } from "../core/focus.ts";
 import type { BacklogConfig } from "../types/index.ts";
 import { clearCommitContext, getCommitContext } from "./commit-context.ts";
+
+/** The focus file is never part of a board commit; see `src/core/focus.ts`. */
+const EXCLUDE_FOCUS = `:(exclude)${BOARD_DIR}/${FOCUS_FILE}`;
 
 export interface GitBranchTip {
 	name: string;
@@ -70,7 +74,11 @@ export class GitOperations {
 
 	/**
 	 * The one commit routine. `git add -- .boards` then `git commit -- .boards`,
-	 * so the human's own staged work stays out of it. Skipped, quietly, when the
+	 * so the human's own staged work stays out of it, with `.boards/.focus`
+	 * excluded from every one of those pathspecs (add, diff --cached, commit,
+	 * reset): it is a per-checkout binding, never a thing to commit, and a
+	 * repository that has not run init has no `.gitignore` entry to protect it,
+	 * so the binary excludes it itself. Skipped, quietly, when the
 	 * env var says so, .boards is ignored, or the add produced no staged change
 	 * (decided from the index with `git diff --cached`, never by matching git's
 	 * prose, which varies with untracked files present); retried on a locked
@@ -92,7 +100,7 @@ export class GitOperations {
 			const ctx = getCommitContext();
 			const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
 			for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
-				const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
+				const add = run(this.projectRoot, ["add", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (add.code !== 0 && /index\.lock/.test(add.err)) {
 					await sleep(LOCK_RETRY_MS);
 					continue;
@@ -104,11 +112,11 @@ export class GitOperations {
 				// A no-op write (a status set to what it already was, the second
 				// commitFiles of a multi-step archive) stages nothing to commit.
 				// Decide that from the index, not from git's commit-failure prose.
-				const diff = run(this.projectRoot, ["diff", "--cached", "--quiet", "--", BOARD_DIR]);
+				const diff = run(this.projectRoot, ["diff", "--cached", "--quiet", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (diff.code === 0) return false;
-				const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR]);
+				const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (commit.code === 0) return true;
-				run(this.projectRoot, ["reset", "-q", "--", BOARD_DIR]);
+				run(this.projectRoot, ["reset", "-q", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (/index\.lock/.test(commit.err)) {
 					await sleep(LOCK_RETRY_MS);
 					continue;

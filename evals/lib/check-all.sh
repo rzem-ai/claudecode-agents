@@ -69,7 +69,7 @@ printf '\n=== board ===\n'
 if ! command -v bun >/dev/null 2>&1; then
     printf 'board: skipped (bun is not on PATH)\n'
 else
-    # The five test files the fleet owns. The rest of the upstream suite takes
+    # The test files the fleet owns. The rest of the upstream suite takes
     # about five minutes, and check-all.sh has to stay under two, so it runs
     # only under CHECK_ALL_BOARD_FULL=1.
     BOARD_TESTS=(

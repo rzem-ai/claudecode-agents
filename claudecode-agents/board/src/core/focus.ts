@@ -4,10 +4,13 @@ import { BOARD_DIR } from "../board-root.ts";
 
 /**
  * The item this checkout's sessions are working on. One line at
- * `.boards/.focus`, ignored by git, written by `task_focus` or `board focus`
- * and read by the SubagentStart hook ahead of everything else. Per checkout,
- * not per session: that is a known limit, the same one the launch-time
- * variable had, and the `[board:<id>]` task marker still decides completion.
+ * `.boards/.focus`, written by `task_focus` or `board focus` and read by the
+ * SubagentStart hook ahead of everything else. The binary excludes it from
+ * its own commits (see `commitBoard` in `src/git/operations.ts`), and the
+ * init template's `.gitignore` keeps it out of the human's, for a repository
+ * that ran init. Per checkout, not per session: that is a known limit, the
+ * same one the launch-time variable had, and the `[board:<id>]` task marker
+ * still decides completion.
  */
 export const FOCUS_FILE = ".focus";
 

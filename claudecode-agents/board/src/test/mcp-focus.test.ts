@@ -42,6 +42,8 @@ describe("task_focus", () => {
 		const focused = JSON.parse(getText((await call("task_focus", { id: id?.toLowerCase() })).content));
 		expect(focused.focused).toBe(id);
 		expect(readFocus(TEST_DIR)).toBe(id as string);
+		const unchanged = JSON.parse(getText((await call("task_focus", {})).content));
+		expect(unchanged.focused).toBe(id);
 		const cleared = JSON.parse(getText((await call("task_focus", { clear: true })).content));
 		expect(cleared.focused).toBeNull();
 		expect(readFocus(TEST_DIR)).toBeNull();

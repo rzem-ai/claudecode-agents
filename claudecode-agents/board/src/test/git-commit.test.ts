@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BOARD_DIR } from "../board-root.ts";
 import { Core } from "../core/backlog.ts";
+import { FOCUS_FILE, writeFocus } from "../core/focus.ts";
 import { clearCommitContext, setCommitContext } from "../git/commit-context.ts";
 import { formatCommitSubject } from "../git/operations.ts";
 
@@ -79,6 +80,15 @@ describe("the binary commits its writes", () => {
 		await core.createTaskFromInput({ title: "First" });
 		expect(git("diff", "--cached", "--name-only")).toBe("notes.txt");
 		expect(git("show", "--stat", "--format=", "HEAD")).not.toContain("notes.txt");
+	});
+
+	it("never commits the focus file", async () => {
+		const core = new Core(repo);
+		const { task } = await core.createTaskFromInput({ title: "First" });
+		writeFocus(repo, task.id);
+		await core.updateTaskFromInput(task.id, { title: "First, retitled" });
+		expect(git("show", "--stat", "--format=", "HEAD")).not.toContain(FOCUS_FILE);
+		expect(git("status", "--porcelain")).toContain(`?? ${BOARD_DIR}/${FOCUS_FILE}`);
 	});
 
 	it("skips the commit when CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1 and leaves the file", async () => {
