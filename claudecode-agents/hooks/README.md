@@ -23,6 +23,8 @@ This is the part the plan left open. It says the hook "is expected to know the i
 
 Per checkout, not per session: two sessions in one checkout working two items would need `[board:<id>]` on their completion tasks, as before. `CLAUDECODE_AGENTS_BOARD_PAGE_ID` still works and is read last; it is for a scripted launch, and nothing in the fleet asks anyone to set it.
 
+A focused checkout moves its card on every subagent start, scouts and question-answering spawns included - most spawns are not board items, but the hook has no way to tell one from the other, only whether a focus is set. Clear the focus (`task_focus` with `clear: true`, or `/work clear`) when the work in front of you is not the item's.
+
 Restoring per-agent binding needs a supported correlation between the Agent tool's invocation and the subagent identity in the event. It must not be done with a shared "latest prompt" file: two agents spawned together would race for the same line, which is the same class of bug as the last-item guess that used to close the wrong card.
 
 **Completion is separate from binding.** A session binding says which item is in flight; it never says that a given task finished it. Only a task whose `task_subject` carries `[board:<page-id>]` moves an item to Done, and that marker belongs on the one task representing completion of the whole tracked issue - never on an ordinary execution task, however much it contributed.
@@ -31,7 +33,7 @@ Restoring per-agent binding needs a supported correlation between the Agent tool
 
 1. ~~The lead's body, or the `board` skill, must tell the lead to emit that line.~~ Done, in both: `agents/lead.md` step 6 carries the rule and `skills/board/SKILL.md`, "Telling the hooks which item", carries the full convention. Neither is a file this layer owns, so if either is rewritten without that content, every board write goes back to being a no-op and the log fills with "no board item" lines.
 2. ~~`scripts/install-home.sh` must render the hooks' API token at mode 600 (plan section 12).~~ Retired, September 2026. The board is a directory of files in the repository and there is no endpoint to authenticate against, so no hook reads a token and the installer renders none. What it must do instead is build the binary into `~/.local/bin/board`; see "What breaks them".
-3. The `statuses` list in `board/config.yml` needs to cover `To Do`, `Doing`, `Blocked`, `Blocked by human` and `Done`. The `BOARD_COL_*` defaults below are that list character for character, so a tree the installer wrote needs no configuration; a tree spelling one differently is a config edit, or an override in `board.env` (below) where the config cannot be changed.
+3. The `statuses` list in `.boards/config.yml` needs to cover `To Do`, `Doing`, `Blocked`, `Blocked by human` and `Done`. The `BOARD_COL_*` defaults below are that list character for character, so a tree the installer wrote needs no configuration; a tree spelling one differently is a config edit, or an override in `board.env` (below) where the config cannot be changed.
 
 ### The fallbacks, in order
 
@@ -89,7 +91,7 @@ CLAUDECODE_AGENTS_TEST_STATUS_MAX_AGE=3600
 CLAUDECODE_AGENTS_REPO=""               # the claudecode-agents working copy, for fleet-steward
 ```
 
-A column is a status in `board/config.yml`, and a move is one `board task edit <id> -s <status>` against the repository, preceded by a `board task view <id> --json` that resolves the identifier and confirms the item exists. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`, and `lib/board.sh` exports it so the binary sees it. An inherited value wins on purpose - that is how the contract suite aims the hooks at a throwaway tree and how the slarti unit points at its own clone. What keeps a board out of a worktree is not the variable but the binary: there is no walk up from `cwd` and no `--cwd`, so a hook running inside a worktree can never discover a board there by accident, and only an explicit value moves the root. The binary is reached through one shim, `board/board.sh` in the plugin, which tries `~/.local/bin/board`, then `bin/board` beside itself, then `bun src/cli.ts`. A failure arrives as an exit code with its own stderr rather than an errors array smuggled inside a 200, so there is no body to second-guess: a non-zero exit is logged as `board <cmd> failed (exit N): ...` and swallowed.
+A column is a status in `.boards/config.yml`, and a move is one `board task edit <id> -s <status>` against the repository, preceded by a `board task view <id> --json` that resolves the identifier and confirms the item exists. The binary finds the board itself - the main checkout's `.boards/` of the repository containing the hook's cwd, through `git rev-parse --git-common-dir`, never a linked worktree's committed copy - so the library's only job is to run it in the hook's cwd (`BOARD_CWD`, exported from the event's `cwd`). `CLAUDECODE_AGENTS_BOARD_ROOT` is honoured when it is inherited, which is how the contract suite aims the hooks at a throwaway tree, but nothing in the fleet sets it. There is no default root: outside a repository the binary says `no board here`. The binary is reached through one shim, `board/board.sh` in the plugin, which tries `~/.local/bin/board`, then `bin/board` beside itself, then `bun src/cli.ts`. A failure arrives as an exit code with its own stderr rather than an errors array smuggled inside a 200, so there is no body to second-guess: a non-zero exit is logged as `board <cmd> failed (exit N): ...` and swallowed.
 
 Two escape hatches:
 
@@ -340,9 +342,9 @@ To watch the real thing, run Claude Code with `--debug` - hook stderr goes to th
 
 - **`jq` missing.** It is checked and named in the log. The board stops updating; the session does not stop. macOS ships without it.
 - **The lead not emitting `Board-Item:`.** Everything runs, nothing moves. This is the most likely failure and the log line for it is explicit.
-- **Column names that do not match.** The log carries the binary's own complaint that no such status exists. Fix `statuses` in `board/config.yml`, or point `BOARD_COL_*` in `board.env` at the name that tree uses; do not rename the fleet's columns to match the code.
+- **Column names that do not match.** The log carries the binary's own complaint that no such status exists. Fix `statuses` in `.boards/config.yml`, or point `BOARD_COL_*` in `board.env` at the name that tree uses; do not rename the fleet's columns to match the code.
 - **No binary.** The library logs `board shim missing at <path>` when the shim itself is not there, and the shim exits 127 with `board: no binary at ~/.local/bin/board or .../bin/board and no bun on PATH` when it is but nothing it looks for is. Re-run `scripts/install-home.sh`; the binary is built on each machine and never committed.
-- **No board under the root.** The binary expects `board/config.yml` under `CLAUDECODE_AGENTS_BOARD_ROOT` and says so on stderr, which reaches the log as a `board <cmd> failed (exit N): ...` line.
+- **No `.boards` in the checkout.** The binary expects `.boards/config.yml` in the main checkout of the repository containing the hook's cwd, and says `no board here` on stderr when it finds none, which reaches the log as a `board <cmd> failed (exit N): ...` line.
 - **Renaming or moving a script** without updating `hooks.json`. The paths there are literal.
 - **Dropping the execute bit.** `git update-index --chmod=+x` if it happens.
 - **`set -x` anywhere in these scripts.** It buries the log in noise. `lib/board.sh` disables it on load; do not turn it back on.

@@ -359,11 +359,12 @@ board_resolve() {
 # board_focus_id HOOK -> prints the focused item id, or nothing
 # The focus file is the binding now: written by task_focus or `board focus`,
 # per checkout, read here ahead of the session state and the environment.
-# Gated on board_would_send like every other reach into the binary, so
-# CLAUDECODE_AGENTS_BOARD=off and a dry run stay entirely offline.
+# Gated on board_disabled, not board_would_send: `focus --show` is a read, not
+# a write, so a dry run still needs it to report what it would have moved
+# rather than falling through and logging "nothing is focused".
 board_focus_id() {
   local hook="$1" out
-  board_would_send || return 1
+  board_disabled && return 1
   out="$(board_cli "$hook" focus --show)" || return 1
   [ -n "$out" ] || return 1
   printf '%s\n' "$out"
