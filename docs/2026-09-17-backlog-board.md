@@ -2,6 +2,8 @@
 
 Author: Angus, for Alex. Date: 17 September 2026. Status: design, for approval before a plan is written.
 
+Superseded in part on 18 September 2026 by `docs/2026-09-18-project-boards.md`: the board is per repository at `.boards/`, not in the memory tree. Sections 4 and 9 below describe the memory-tree layout as it was for one afternoon.
+
 ## 1. What this is for
 
 The fleet's board has lived in Linear since 12 September, and before that in Notion. Both are servers: a hook that wants to move a card needs a key, a network, and a vendor that is up. The human's own reading of the board goes through a vendor app, and an agent that wants to know what is in flight pays for an MCP tool list on every turn.

@@ -6,6 +6,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 The version in `.claude-plugin/plugin.json` is load-bearing. Clients keep the cached copy of the plugin until that number changes, so every change that should reach a machine needs a version bump and an entry below.
 
+## [0.19.0] - 2026-09-18
+
+The board lives with the project. Each repository has its own at `.boards/`, committed by the binary after every write; the memory tree's board is retired and a script migrates what was in it.
+
+### Added
+
+- **`task_focus` and `/work`.** The lead calls `task_focus <id>` when it starts a phase; the human runs `/work <id>`. Either writes one line to `.boards/.focus` (ignored by git), and `SubagentStart` reads it ahead of the session's own state and the launch-time variable. Nothing is set at launch any more.
+- **`--by <name>` on `task create` and `task edit`,** so a commit subject names the writer: `board: BD-12 Doing (SubagentStart)`. The hooks pass their own name.
+- **`board focus [id] | --show | --clear`** on the CLI.
+- **A read-only scan of task ids across every local and remote-tracking ref** before an id is allocated, so two contributors do not mint the same one.
+- **`/init` creates the board** from `templates/board.config.yml` and `templates/board.gitignore`, offering a per-repository prefix.
+
+### Changed
+
+- **The board directory is `.boards/` in the main checkout of the repository containing the working directory,** found through `git rev-parse --git-common-dir`, never a linked worktree's committed copy. `CLAUDECODE_AGENTS_BOARD_ROOT` still overrides. Outside a repository there is no board: the binary says `no board here` and a hook logs it and exits 0.
+- **The binary commits its own writes.** `git add -- .boards` then `git commit -- .boards`, on the checked-out branch, never pushed, retried three times on a locked index, skipped when `.boards` is ignored, when `auto_commit` is not `true`, or when `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1`. The git stub regained exactly that; everything else in it stays a stub.
+- **The hooks run the binary in the hook's `cwd`** and no longer export a default root. The contract suite's live case is a git repository with a linked worktree, and asserts the move, the commit and the untouched worktree copy.
+- **`/kickoff` checks `.boards/` in this repository; the installer only builds the binary** and no longer writes to the memory tree or its watcher. `home/board.config.yml` is gone.
+- **The board skill, the glossary, the fleet plan and the hooks README** say all of the above; the `projects` list is no longer required and a project is the repository.
+
+### Migration
+
+- `scripts/migrate-memory-board.sh <project> <repo>` moves one project's items from `~/.memory/board/tasks/` into that repository's `.boards/tasks/`, renumbered, with the old id kept as a reference, and commits once. Run it per project; a board not migrated starts empty.
+
 ## [0.18.0] - 2026-09-18
 
 The board's web UI becomes per Claude Code instance, and the shared instance on slarti is dropped before it was ever built.

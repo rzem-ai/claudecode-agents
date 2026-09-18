@@ -23,7 +23,7 @@ Removed, in the order the plan removed them:
 
 - root discovery by walking up and by git (`src/utils/find-backlog-root.ts`, `src/utils/runtime-cwd.ts`)
 - upstream's commander CLI and its command tree (`src/cli.ts`, `src/commands/`)
-- the git layer (`src/git/`, `src/core/cross-branch-tasks.ts`, auto-commit and remote operations)
+- the git layer (`src/git/`, `src/core/cross-branch-tasks.ts`, auto-commit and remote operations). On 18 September 2026 `src/git/operations.ts` regained add and commit, pathspec-limited to the board directory, and `src/git/branch-ids.ts` was written fresh for cross-ref id allocation; cross-branch task loading and remote operations stay out.
 - the terminal UI (`src/ui/`, `src/types/neo-neo-bblessed.d.ts`, `Core.editTaskInTui`, `Core.openEditor`, `src/board.ts`'s terminal format and layout types, `neo-neo-bblessed`, `@clack/core`, `@clack/prompts`)
 - shell completions (`src/completions/`)
 - project initialisation and instruction injection (`src/core/init.ts`, `src/agent-instructions.ts`, `src/guidelines/`, `src/readme.ts`, the server's `/api/init` endpoint)

@@ -8,7 +8,7 @@ Canonical copy. `claudecode-agents/templates/rules/glossary.md` is generated fro
 | Term | Meaning | Maps to |
 |---|---|---|
 | Initiative | A goal spanning several projects (e.g. "agent platform v5") | none; a shared milestone or a document |
-| Project | A bounded body of work in one repo or product area | an entry in the board config's `projects` list |
+| Project | A bounded body of work in one repo or product area | the repository; the optional `project` field on an item names a part of a monorepo |
 | Milestone | A checkpoint inside a project with a date or a deliverable | a milestone file |
 | Issue | The unit of tracked work a human cares about. Has a spec or is trivial | a task file (`BD-12`) |
 | Sub-issue | A child of an issue, still tracked on the board | a sub-task (`BD-12.1`) |
@@ -24,7 +24,7 @@ Canonical copy. `claudecode-agents/templates/rules/glossary.md` is generated fro
 | Handoff | The structured result a subagent returns. Always four headings: Done, Not done, Unverified, Decisions needed. Lines under the last are typed: `Blocker:`, `Propose item:`, `Propose memory:` | Agent tool result, `handoff` skill |
 | Run article | The readable account of one run - what was tried, abandoned and why - written only when the spawn prompt asks for one | `docs/runs/<date>-<agent>-<issue>.md`, `run-article` skill |
 | Gate | A point where a human must approve before the next phase | `TaskCompleted` hook or plan approval |
-| Board | The tracked items as five columns: to do, doing, blocked, blocked by human, done | the task files grouped by status; `board export` or the web UI |
+| Board | The tracked items as five columns: to do, doing, blocked, blocked by human, done | the task files under `.boards/` in the repository, grouped by status; `board export` or the web UI |
 | Human queue | The "blocked by human" column. The one thing the human monitors | the `Blocked by human` status |
 | Eval | A smoke test for one agent: three to five prompts, a rubric, a baseline score. Deterministic checks run in CI; the model runs are manual | `evals/run.sh`, and `evals/lib/check-all.sh` in `claudecode-agents` CI |
 | Sprite | A home-lab AI personal assistant with a persistent identity. Out of scope here; the fleet has no Sprites | Agent SDK agent |

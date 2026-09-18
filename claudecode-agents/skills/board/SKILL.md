@@ -6,11 +6,11 @@ when_to_use: Read before filing, reading, moving, commenting on or closing any b
 
 # The board
 
-The board is a directory of markdown files, one per item, at `board/tasks/` under the memory tree, and the board is those files grouped by status. It is written through the plugin's own `board` binary and never by hand; the memory sync agent carries it between machines. Nothing sits between the board and Claude Code's native task list.
+The board is this repository's: a directory of markdown files, one per item, at `.boards/tasks/` in the main checkout, committed like any other project file, and the board is those files grouped by status. It is written through the plugin's own `board` binary and never by hand, and the binary commits every write it makes. There is no global board; each repository has its own. Nothing sits between the board and Claude Code's native task list.
 
-**Projects** - one entry in the config's `projects` list per bounded body of work in a repo or product area. A goal spanning projects is a milestone shared across them, or a document.
+**Projects** - a project is the repository. The `project` field on an item is optional and exists for a monorepo that wants to say which part; there is no list to be on.
 
-**Issues** - one issue per tracked unit of work, in a project, with milestones on the project where there is a real date, and sub-items as a parent task, `BD-12.1` under `BD-12`. The board is the five-column view over these issues. One tree holds everything, because a board you have to mentally join to another board is not one place to look.
+**Issues** - one issue per tracked unit of work, in a project, with milestones on the project where there is a real date, and sub-items as a parent task, `BD-12.1` under `BD-12`. The board is the five-column view over these issues. One repository, one board: what you see is this project's state and nothing else's.
 
 ## What earns an item
 
@@ -32,7 +32,7 @@ The lead files work that surfaces mid-run. An agent that spots adjacent work whi
 | Blocked by human | Waiting on an answer from the human. The human queue | `SubagentStop`, on a `Blocker:` line in the handoff |
 | Done | The run finished and its tests passed | `TaskCompleted` hook |
 
-The columns are the `statuses` list in `board/config.yml`, spelled exactly as the table has them, and the hooks match them ignoring case. `board.env` overrides still exist for a tree whose config spells them differently, but the installer writes the fleet's spelling and nothing should need one.
+The columns are the `statuses` list in `.boards/config.yml`, spelled exactly as the table has them, and the hooks match them ignoring case. `board.env` overrides still exist for a tree whose config spells them differently, but the installer writes the fleet's spelling and nothing should need one.
 
 Blocked and blocked by human are separate columns because they need different responses. Blocked is something to wait out or work around. Blocked by human costs the human an interruption, and it is the only column they monitor.
 
@@ -50,14 +50,13 @@ A comment ending in a `[Cut to fit a board comment ...]` line names a file under
 
 Hooks write the columns, but nothing tells a hook which issue a subagent is working on.
 
-**The binding is the session, set at launch.** `SubagentStart` receives the agent's identity and nothing else - no spawn prompt under any name - so a line in the prompt cannot reach it:
+**The binding is the checkout's focus.** `SubagentStart` receives the agent's identity and nothing else - no spawn prompt under any name - so a line in the prompt cannot reach it. What it reads is `.boards/.focus` in the main checkout, one line, written by the `task_focus` tool or the human's `/work` command:
 
-```sh
-CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12 \
-  claude --agent claudecode-agents:lead
+```
+task_focus BD-12
 ```
 
-Every spawn in that session belongs to that item. Work on an unrelated item starts in its own session, and an unbound session moves nothing - which is correct, because most spawns are not board work.
+Call it when you start a phase against an item, before the first spawn. Every spawn in that checkout then belongs to that item until the focus changes. Work on an unrelated item focuses that item first, and an unfocused checkout moves nothing - which is correct, because most spawns are not board work. `CLAUDECODE_AGENTS_BOARD_PAGE_ID` at launch still works and is read last; nothing asks anyone to set it.
 
 **Completion is a separate question.** The binding says which item is in flight. It never says that a given task finished it, and `TaskCompleted` will not guess: only a task whose subject carries `[board:<issue>]` moves an issue to done, and that marker goes on the one task that represents completing the whole issue. An ordinary execution task carries no marker however much it contributed. A card that silently reads done is taken as finished work.
 
@@ -81,7 +80,7 @@ If you are the agent receiving the line, use it to fetch the issue you are worki
 
 **Which legitimately do not.** A `scout` sent to find where something lives, or any agent spawned to answer a question inside the conversation, is not board work and gets no line. Neither is an exploratory spawn, a second opinion, or anything you would otherwise have done yourself in the main session. Most spawns are not items, per What earns an item above, and adding the line to a spawn that is not one drags a real issue into doing for work that is not it.
 
-**What happens when it is absent.** `SubagentStart` logs that no board item was resolved, moves nothing, and exits 0. For a scout that is the correct outcome and the end of it. For real work it is a silent failure with a long tail: the issue sits in to do while the work happens, `SubagentStop` finds no binding so a failed run never reaches blocked and a `Blocker:` line never reaches blocked by human, and `TaskCompleted` falls back to a `[board:<issue>]` marker in the task title, then to the last item picked up in the session, then to nothing. No error is raised anywhere. The only evidence is a `no board item` line in `~/.local/state/claudecode-agents/log/hooks.log`.
+**What happens when it is absent.** `SubagentStart` logs that no board item was resolved, moves nothing, and exits 0. For a scout that is the correct outcome and the end of it. For real work it is a silent failure with a long tail: the issue sits in to do while the work happens, `SubagentStop` finds no binding so a failed run never reaches blocked and a `Blocker:` line never reaches blocked by human, and `TaskCompleted` falls back to a `[board:<issue>]` marker in the task title, then to the session's last item, then to nothing. No error is raised anywhere. The only evidence is a `no board item` line in `~/.local/state/claudecode-agents/log/hooks.log`.
 
 **Two items in one session.** The `TaskCompleted` fallback guesses, and it guesses whichever item was picked up most recently. If a session is working two items at once, put `[board:<issue>]` in the task title as well and the guess never happens.
 
@@ -109,21 +108,30 @@ Link `docs/specs/<issue>.md` and `docs/plans/<issue>.md` on the issue rather tha
 
 Add comments, do not rewrite descriptions. The history of an issue is how a blocked item is understood a week later, and an edited description destroys it. Never delete an issue - abandon it.
 
+## Git
+
+Every write the binary makes is a commit: `git add -- .boards` then `git commit -- .boards` in the main checkout, on whatever branch is checked out there, with a one-line subject such as `board: BD-12 Doing (SubagentStart)` or `board: BD-12 created (fleet-steward)`. The pathspec keeps the human's own staged work out. Nothing pushes; the human's next push carries it. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards` - leaves the file write standing and logs `commit skipped`. `auto_commit: false` in the config or `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` in a shell turns commits off.
+
+A hook fired inside a coder's worktree resolves to the main checkout, so a feature branch never carries a board change unless a person put one there. Ids are allocated above the highest id in every branch the clone knows, so two contributors do not mint the same one; a clone that has not fetched cannot know, and that is the limit.
+
+`git log -- .boards/tasks/BD-12*` is the history of an item: who moved it and when, which a comment trail can forget and a commit cannot.
+
 ## The CLI
 
-Every write goes through the `board` binary, reached by the shim at `${CLAUDE_PLUGIN_ROOT}/board/board.sh`, against the root in `CLAUDECODE_AGENTS_BOARD_ROOT` (default `$HOME/.memory`). This table exists rather than a pointer at the tool because nested `--help` fell through in the upstream tool the package was carried from, so "run `board task create --help`" was not an answer; the carried CLI does answer it, but a machine that has not built the binary still has to be able to read the flags here.
+Every write goes through the `board` binary, reached by the shim at `${CLAUDE_PLUGIN_ROOT}/board/board.sh`, against the main checkout of the repository containing the working directory (`CLAUDECODE_AGENTS_BOARD_ROOT` overrides that when set). This table exists rather than a pointer at the tool because nested `--help` fell through in the upstream tool the package was carried from, so "run `board task create --help`" was not an answer; the carried CLI does answer it, but a machine that has not built the binary still has to be able to read the flags here.
 
 | Command | Flags |
 |---|---|
-| `board task create <title>` | `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--priority p`, `--project name`, `--milestone m`, `-p/--parent id`, `--dep id`, `--ac text`, `--plan text`, `--notes text`, `--json`, `--plain` |
-| `board task edit <id>` | `-t/--title text`, `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--add-label l`, `--remove-label l`, `--priority p`, `--project name`, `--milestone m`, `--dep id`, `--ref text`, `--ac text`, `--check-ac n`, `--uncheck-ac n`, `--remove-ac n`, `--plan text`, `--append-plan text`, `--notes text`, `--append-notes text`, `--comment text` (needs `--comment-author @name`), `--final-summary text`, `--json`, `--plain` |
+| `board task create <title>` | `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--priority p`, `--project name`, `--milestone m`, `-p/--parent id`, `--dep id`, `--ac text`, `--plan text`, `--notes text`, `--by <name>`, `--json`, `--plain` |
+| `board task edit <id>` | `-t/--title text`, `-d/--description text`, `-s/--status status`, `-a/--assignee names`, `-l/--labels labels`, `--add-label l`, `--remove-label l`, `--priority p`, `--project name`, `--milestone m`, `--dep id`, `--ref text`, `--ac text`, `--check-ac n`, `--uncheck-ac n`, `--remove-ac n`, `--plan text`, `--append-plan text`, `--notes text`, `--append-notes text`, `--comment text` (needs `--comment-author @name`), `--final-summary text`, `--by <name>`, `--json`, `--plain` |
 | `board task view <id>` | `--json`, `--plain` |
 | `board task list` | `--status s`, `--project p`, `--assignee a`, `--labels l`, `--search q`, `--limit n`, `--json`, `--plain` |
 | `board task search <query>` | `--type t`, `--limit n`, `--json`, `--plain` |
+| `board focus [id]` | `--show`, `--clear` - this checkout's focused item |
 | `board export` | none - the whole board as a markdown table on stdout |
 | `board mcp` | none - the MCP server on stdio |
 | `board serve` | `--port n`, `--host h` - random port on `127.0.0.1` unless overridden by the flag, `CLAUDECODE_AGENTS_BOARD_PORT`/`_HOST`, or `default_port` in the config |
 
-`--dep`, `--ac`, `--check-ac`, `--uncheck-ac`, `--remove-ac`, `--ref`, `--add-label`, `--remove-label`, `--append-plan`, `--append-notes` and `--comment` repeat, as do `list --status` and `search --type`; `-a` and `-l` take a comma-separated list or repeat. `-s` on `create` and `edit` takes one status, not a list. `--json` returns a versioned document whose `kind` is `task-view`, `task-list` or `search`, and a comment's text is its `body` field. There is no `--cwd` and no walk up from the working directory: the root comes from the environment variable alone.
+`--dep`, `--ac`, `--check-ac`, `--uncheck-ac`, `--remove-ac`, `--ref`, `--add-label`, `--remove-label`, `--append-plan`, `--append-notes` and `--comment` repeat, as do `list --status` and `search --type`; `-a` and `-l` take a comma-separated list or repeat. `-s` on `create` and `edit` takes one status, not a list. `--json` returns a versioned document whose `kind` is `task-view`, `task-list` or `search`, and a comment's text is its `body` field. There is no `--cwd`: the board is found from the working directory through git, to the main checkout, never to a linked worktree's copy.
 
 **The web UI is per session, and optional.** The `/board` command calls the MCP server's `board_serve` tool, which starts the UI inside that session's own MCP process on a random loopback port and returns the URL; `board_url` reports it without starting anything. It stops when the session's MCP server stops. Nothing about the board depends on it: the task tools and the hooks read and write the files directly. Never start `board serve` from Bash as a substitute for `/board` - a server outside the MCP process outlives the session.
