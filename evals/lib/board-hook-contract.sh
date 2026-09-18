@@ -193,7 +193,7 @@ printf '\nSubagentStart: binding without a spawn prompt\n'
 # binding it must record the item; without one it must do nothing and say so.
 run_hook board-subagent-start.sh \
     '{"session_id":"s8","agent_id":"a1","agent_type":"claudecode-agents:coder"}'
-log_has "unbound"; check start-unbound-noop "a documented-shape start event with no binding moves nothing" $?
+log_has "nothing is focused"; check start-unbound-noop "a documented-shape start event with no binding moves nothing" $?
 
 RC=0
 printf '%s' '{"session_id":"s9","agent_id":"a2","agent_type":"claudecode-agents:coder"}' \
@@ -433,35 +433,62 @@ if ! "$SHIM" --version >/dev/null 2>&1; then
     printf '  skipped: board not resolvable via %s; build it with claudecode-agents/board/build.sh\n' "$LIVE_VIA"
 else
     printf '  running against %s\n' "$LIVE_VIA"
-    LIVE="$TMP/live"; mkdir -p "$LIVE/board"
-    printf 'project_name: "t"\ntask_prefix: "BD"\nstatuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]\ndefault_status: "To Do"\n' > "$LIVE/board/config.yml"
-    export CLAUDECODE_AGENTS_BOARD_ROOT="$LIVE"
+    # The board is the main checkout's .boards. The hooks are run with a cwd in
+    # a linked worktree, and every move has to land in the main checkout - as a
+    # file, and as a commit whose subject names the hook - while the worktree's
+    # own copy of the board stays exactly as it was.
+    LIVE="$TMP/live"; WTLIVE="$TMP/live-wt"
+    mkdir -p "$LIVE/.boards/tasks"
+    printf 'project_name: "t"\ntask_prefix: "BD"\nstatuses: ["To Do", "Doing", "Blocked", "Blocked by human", "Done"]\ndefault_status: "To Do"\nauto_commit: true\n' > "$LIVE/.boards/config.yml"
+    git -C "$LIVE" init -q -b main
+    git -C "$LIVE" config user.email t@t
+    git -C "$LIVE" config user.name t
+    git -C "$LIVE" add -A && git -C "$LIVE" commit -qm base
+    git -C "$LIVE" worktree add -q "$WTLIVE" -b agent-live
+    unset CLAUDECODE_AGENTS_BOARD_ROOT
     export CLAUDECODE_AGENTS_BOARD=on
     unset BOARD_DRY_RUN
-    ID="$("$SHIM" task create "Live item" --json | jq -r .task.id)"
+    ID="$(cd "$LIVE" && "$SHIM" task create "Live item" --json | jq -r .task.id)"
+    [ "$(git -C "$LIVE" log -1 --format=%s)" = "board: $ID created" ]; check live-create-commits "a create commits with the id in the subject" $?
 
-    # run_hook passes no environment, and SubagentStart's only supported binding
-    # is the variable, so it is exported around the call and taken away again.
-    export CLAUDECODE_AGENTS_BOARD_PAGE_ID="$ID"
+    # Focus is the binding now. Written in the main checkout, read by the hook
+    # run from the worktree: no environment variable anywhere.
+    (cd "$LIVE" && "$SHIM" focus "$ID" >/dev/null)
     run_hook board-subagent-start.sh \
-        "$(jq -nc --arg t "claudecode-agents:coder" \
-            '{session_id:"live",agent_id:"a1",agent_type:$t}')"
-    unset CLAUDECODE_AGENTS_BOARD_PAGE_ID
-    [ "$("$SHIM" task view "$ID" --json | jq -r .task.status)" = "Doing" ]; check live-start-doing "SubagentStart moves the item to Doing" $?
+        "$(jq -nc --arg t "claudecode-agents:coder" --arg c "$WTLIVE" \
+            '{session_id:"live",agent_id:"a1",agent_type:$t,cwd:$c}')"
+    [ "$(cd "$LIVE" && "$SHIM" task view "$ID" --json | jq -r .task.status)" = "Doing" ]; check live-start-doing "SubagentStart, run from a worktree, moves the main checkout's item to Doing via the focus" $?
+    [ "$(git -C "$LIVE" log -1 --format=%s)" = "board: $ID Doing (SubagentStart)" ]; check live-start-commits "the move is committed in the main checkout, naming the hook" $?
+    [ -z "$(git -C "$WTLIVE" status --porcelain)" ]; check live-worktree-untouched "the worktree's copy of the board is untouched" $?
+    log_has "from the focus file"; check live-focus-source "the log says the binding came from the focus file" $?
 
-    # No status field: the runtime does not send one (see the header), so the
-    # route to the human queue is a Blocker: line, and that is what is driven here.
     run_hook board-subagent-stop.sh \
-        "$(jq -nc '{session_id:"live",agent_id:"a1",agent_type:"claudecode-agents:coder",
+        "$(jq -nc --arg c "$WTLIVE" '{session_id:"live",agent_id:"a1",agent_type:"claudecode-agents:coder",cwd:$c,
                     stop_hook_active:false,agent_transcript_path:"/dev/null",
                     last_assistant_message:"## Done\n- Moved a live item through the binary\n\n## Not done\n- None\n\n## Unverified\n- None\n\n## Decisions needed\n- Blocker: which key?\n"}')"
-    [ "$("$SHIM" task view "$ID" --json | jq -r .task.status)" = "Blocked by human" ]; check live-blocker "a Blocker: line moves the item to Blocked by human" $?
-
-    # The author is "@$HOOK", and HOOK is the hook's own name - SubagentStop,
-    # not the script's filename. The comment body is .body, not .content.
-    "$SHIM" task view "$ID" --json \
+    [ "$(cd "$LIVE" && "$SHIM" task view "$ID" --json | jq -r .task.status)" = "Blocked by human" ]; check live-blocker "a Blocker: line moves the item to Blocked by human" $?
+    (cd "$LIVE" && "$SHIM" task view "$ID" --json) \
         | jq -e '.task.comments[] | select(.author == "@SubagentStop") | select(.body | test("which key"))' >/dev/null
     check live-comment "the blocker text lands as an authored comment" $?
+    # A pipe into `grep -q` under `pipefail` can report the pipeline as failed
+    # on a false signal: grep stops reading as soon as it has its match, and
+    # git can then be killed by SIGPIPE before it exits cleanly - a real race,
+    # not a correctness question. Capturing the log first side-steps it.
+    LIVE_SUBJECTS="$(git -C "$LIVE" log --format=%s)"
+    printf '%s\n' "$LIVE_SUBJECTS" | grep -q "board: $ID comment (SubagentStop)"; check live-comment-commits "the comment is its own commit" $?
+
+    # Two switches. NO_COMMIT writes the file and nothing else; a cwd outside
+    # any repository has no board, and the hook says so and exits 0.
+    ID2="$(cd "$LIVE" && CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1 "$SHIM" task create "Uncommitted" --json | jq -r .task.id)"
+    # The task file on disk names the item lower-cased (bd-2, not BD-2); -i
+    # matches the identity, not the CLI's own filename casing convention.
+    LIVE_PORCELAIN="$(git -C "$LIVE" status --porcelain)"
+    printf '%s\n' "$LIVE_PORCELAIN" | grep -qi "$ID2"; check live-no-commit "CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1 leaves the write uncommitted" $?
+    git -C "$LIVE" add -A && git -C "$LIVE" commit -qm tidy
+    NOWHERE="$TMP/nowhere"; mkdir -p "$NOWHERE"
+    run_hook board-subagent-start.sh \
+        "$(jq -nc --arg c "$NOWHERE" '{session_id:"live2",agent_id:"a2",agent_type:"claudecode-agents:coder",cwd:$c}')"
+    [ "$RC" -eq 0 ] && log_has "no board here"; check live-no-board "a cwd outside a repository logs 'no board here' and exits 0" $?
 
     export CLAUDECODE_AGENTS_BOARD=off
 fi

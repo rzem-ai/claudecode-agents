@@ -19,18 +19,9 @@ This is the part the plan left open. It says the hook "is expected to know the i
 
 ### The convention
 
-> **This convention does not work, and never did.** It depended on `SubagentStart` carrying the spawn prompt in an `instructions` field. The event carries the common fields plus `agent_id` and `agent_type` and nothing else - see item 15 below - so the `Board-Item:` line has never once been read. It is described here because the lead and the `board` skill still emit it and because it is the shape to restore once there is a supported way to correlate a spawn with the subagent it produced. Do not rely on it today.
+**A checkout is focused on one item**, and the hooks read that focus. The lead sets it when it starts a phase, with the board server's `task_focus` tool; the human sets it by hand with `/work BD-12`. Either writes one line to `.boards/.focus` in the main checkout, which the shipped `.boards/.gitignore` keeps out of git. `SubagentStart` reads it first, ahead of the session's own state and the launch-time variable, so a focus set mid-session takes over from whatever the previous spawn was on.
 
-**A board session is bound to one item at launch**, by environment variable:
-
-```sh
-CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12 \
-  claude --agent claudecode-agents:lead
-```
-
-The value is a board item reference in either of the shapes a human has in hand: the identifier (`BD-12`, or a sub-item `BD-12.3`, any case), or the task file's path under `board/tasks/` as the CLI and the web UI hand it back. `SubagentStart` normalises it - the identifier uppercased, a path reduced to the identifier in its filename - and records it in a state file keyed by `session_id` and `agent_id`; `SubagentStop` reads that file back.
-
-This is narrower than the convention it replaces, and it should not be sold as the same thing: all delegated work in that session belongs to that one item, so unrelated work starts in an unbound session. An unbound session moves no column, logs one line saying so, and exits 0 - which is also the right behaviour for the `scout` you spawned to answer a question. Most spawns are not board items.
+Per checkout, not per session: two sessions in one checkout working two items would need `[board:<id>]` on their completion tasks, as before. `CLAUDECODE_AGENTS_BOARD_PAGE_ID` still works and is read last; it is for a scripted launch, and nothing in the fleet asks anyone to set it.
 
 Restoring per-agent binding needs a supported correlation between the Agent tool's invocation and the subagent identity in the event. It must not be done with a shared "latest prompt" file: two agents spawned together would race for the same line, which is the same class of bug as the last-item guess that used to close the wrong card.
 
@@ -39,7 +30,7 @@ Restoring per-agent binding needs a supported correlation between the Agent tool
 ### What must be wired up
 
 1. ~~The lead's body, or the `board` skill, must tell the lead to emit that line.~~ Done, in both: `agents/lead.md` step 6 carries the rule and `skills/board/SKILL.md`, "Telling the hooks which item", carries the full convention. Neither is a file this layer owns, so if either is rewritten without that content, every board write goes back to being a no-op and the log fills with "no board item" lines.
-2. ~~`scripts/install-home.sh` must render the hooks' API token at mode 600 (plan section 12).~~ Retired, September 2026. The board is a directory of files in the memory tree and there is no endpoint to authenticate against, so no hook reads a token and the installer renders none. What it must do instead is build the binary into `~/.local/bin/board`; see "What breaks them".
+2. ~~`scripts/install-home.sh` must render the hooks' API token at mode 600 (plan section 12).~~ Retired, September 2026. The board is a directory of files in the repository and there is no endpoint to authenticate against, so no hook reads a token and the installer renders none. What it must do instead is build the binary into `~/.local/bin/board`; see "What breaks them".
 3. The `statuses` list in `board/config.yml` needs to cover `To Do`, `Doing`, `Blocked`, `Blocked by human` and `Done`. The `BOARD_COL_*` defaults below are that list character for character, so a tree the installer wrote needs no configuration; a tree spelling one differently is a config edit, or an override in `board.env` (below) where the config cannot be changed.
 
 ### The fallbacks, in order
@@ -47,8 +38,10 @@ Restoring per-agent binding needs a supported correlation between the Agent tool
 `SubagentStart`:
 
 1. `Board-Item:` in the spawn prompt. **Unreachable** - the event carries no spawn prompt. Kept so that a runtime which starts sending one works without another change here.
-2. `CLAUDECODE_AGENTS_BOARD_PAGE_ID` in the environment. In practice this is the only one.
-3. Nothing. No column moves.
+2. `.boards/.focus` in the main checkout, via `board focus --show`.
+3. The item this session most recently picked up (`sessions/<session_id>/last-item`).
+4. `CLAUDECODE_AGENTS_BOARD_PAGE_ID` in the environment.
+5. Nothing. No column moves, and the log says to call `task_focus`.
 
 `SubagentStop`: the state file for this `agent_id`, then the environment variable, then nothing.
 
@@ -96,7 +89,7 @@ CLAUDECODE_AGENTS_TEST_STATUS_MAX_AGE=3600
 CLAUDECODE_AGENTS_REPO=""               # the claudecode-agents working copy, for fleet-steward
 ```
 
-A column is a status in `board/config.yml`, and a move is one `board task edit <id> -s <status>` against the memory tree, preceded by a `board task view <id> --json` that resolves the identifier and confirms the item exists. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`, and `lib/board.sh` exports it so the binary sees it. An inherited value wins on purpose - that is how the contract suite aims the hooks at a throwaway tree and how the slarti unit points at its own clone. What keeps a board out of a worktree is not the variable but the binary: there is no walk up from `cwd` and no `--cwd`, so a hook running inside a worktree can never discover a board there by accident, and only an explicit value moves the root. The binary is reached through one shim, `board/board.sh` in the plugin, which tries `~/.local/bin/board`, then `bin/board` beside itself, then `bun src/cli.ts`. A failure arrives as an exit code with its own stderr rather than an errors array smuggled inside a 200, so there is no body to second-guess: a non-zero exit is logged as `board <cmd> failed (exit N): ...` and swallowed.
+A column is a status in `board/config.yml`, and a move is one `board task edit <id> -s <status>` against the repository, preceded by a `board task view <id> --json` that resolves the identifier and confirms the item exists. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`, and `lib/board.sh` exports it so the binary sees it. An inherited value wins on purpose - that is how the contract suite aims the hooks at a throwaway tree and how the slarti unit points at its own clone. What keeps a board out of a worktree is not the variable but the binary: there is no walk up from `cwd` and no `--cwd`, so a hook running inside a worktree can never discover a board there by accident, and only an explicit value moves the root. The binary is reached through one shim, `board/board.sh` in the plugin, which tries `~/.local/bin/board`, then `bin/board` beside itself, then `bun src/cli.ts`. A failure arrives as an exit code with its own stderr rather than an errors array smuggled inside a 200, so there is no body to second-guess: a non-zero exit is logged as `board <cmd> failed (exit N): ...` and swallowed.
 
 Two escape hatches:
 
@@ -270,14 +263,16 @@ This hook **fails open**. Bad input, a missing `jq`, an unexpected error: it log
 
 ## Security
 
-- **There is no secret here any more.** The board is files in the memory tree reached by a local binary, so no hook reads a token, the installer renders none, and no hook makes a network call. **No hook ever calls `op`.** Plan section 12 is explicit about why: it adds latency to every subagent start and stop, and a locked `op` silently stops the board updating.
+- **There is no secret here any more.** The board is files in the repository reached by a local binary, so no hook reads a token, the installer renders none, and no hook makes a network call. **No hook ever calls `op`.** Plan section 12 is explicit about why: it adds latency to every subagent start and stop, and a locked `op` silently stops the board updating.
 - `lib/board.sh` still runs `set +x` on load. Nothing here is secret, but a traced hook floods the transcript with a hundred lines nobody asked for.
-- The board root is honoured from the environment when it is set - the contract suite depends on that - so `CLAUDECODE_AGENTS_BOARD_ROOT` is as trusted as anything else the launching environment hands a hook. The boundary is the binary rather than the variable: no walk up from `cwd` and no `--cwd`, so nothing can discover a board inside a worktree by accident, and a write goes somewhere unexpected only if something explicitly said so.
+- The board is the main checkout's `.boards/` of the repository containing the hook's `cwd`, resolved by the binary through `git rev-parse --git-common-dir`, so a hook fired inside a coder's worktree writes to the main checkout and never to the worktree's committed copy. `CLAUDECODE_AGENTS_BOARD_ROOT` is honoured when set - the contract suite depends on that - and is as trusted as anything else the launching environment hands a hook. There is no default root: outside a repository the binary says `no board here` and the hook logs it and exits 0.
 - `board.env` is sourced, which is code execution. It lives in a 0700 directory that `permissions.deny` and the sandbox `denyRead`/`denyWrite` lists already keep away from every agent. If something else can write that directory, the machine has larger problems than the board.
 
 ## Failure behaviour
 
-Every board write fails soft: log to stderr, exit 0. The binary being unbuilt, the memory tree being absent, `jq` not being installed, the item ref being wrong - none of it stops a session.
+Every board write fails soft: log to stderr, exit 0. The binary being unbuilt, the repository being absent, `jq` not being installed, the item ref being wrong - none of it stops a session.
+
+A board write is also a commit, made by the binary in the main checkout, pathspec-limited to `.boards`, on whatever branch is checked out there, never pushed. A commit that cannot be made - a locked index after three retries, a checkout mid-rebase, an ignored `.boards`, `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` - leaves the file write standing and is logged by the binary to stderr, which `board_cli` captures into `hooks.log`. Look there for `commit skipped` when a card moved but `git log -- .boards` shows nothing.
 
 Exactly two things exit 2, and each for its own reason:
 

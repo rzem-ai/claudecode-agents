@@ -268,14 +268,15 @@ page_id_from_task_title() {
 
 # ------------------------------------------------------------------ the binary
 #
-# The board is the plugin's own binary, reached through one shim. The root is
-# CLAUDECODE_AGENTS_BOARD_ROOT, defaulting to the memory tree and exported so
-# the binary sees it. An inherited value wins, deliberately: that is how the
-# contract suite aims the hooks at a throwaway tree and how the slarti unit
-# points at its own clone. The protection against writing a board into a
-# worktree is not this variable - it is that the binary has no walk up from
-# cwd and no --cwd, so a hook running inside a worktree can never discover a
-# board there by accident. Only an explicit value moves the root.
+# The board is the plugin's own binary, reached through one shim, and the
+# binary finds the board itself: the main checkout's .boards/ of the repository
+# containing its working directory, never a linked worktree's copy (see
+# docs/2026-09-18-project-boards.md section 3). So the one thing this library
+# owes it is the right working directory - BOARD_CWD, the cwd each hook reads
+# from its input - and an inherited CLAUDECODE_AGENTS_BOARD_ROOT is left alone
+# for the contract suite and the rare deliberate override. There is no default
+# root and no fallback board: outside a repository the binary says "no board
+# here", the hook logs it, and nothing moves.
 
 # The shim sits beside this library, two directories up. BASH_SOURCE is how a
 # sourced file finds itself and the hooks are run by bash, so it is there; a
@@ -292,8 +293,8 @@ board_locate_shim() {
 }
 
 BOARD_SHIM="${BOARD_SHIM:-$(board_locate_shim)}"
-export CLAUDECODE_AGENTS_BOARD_ROOT="${CLAUDECODE_AGENTS_BOARD_ROOT:-$HOME/.memory}"
 BOARD_CLI_TIMEOUT="${BOARD_CLI_TIMEOUT:-10}"
+BOARD_CWD="${BOARD_CWD:-}"
 
 board_cli() {
   # $1 hook name, rest arguments. stdout is the command's; failures are logged.
@@ -312,15 +313,24 @@ board_cli() {
   # logging below is never reached. `|| rc=$?` puts the call in a condition
   # context, which is the one place errexit stands down.
   rc=0
-  if command -v timeout >/dev/null 2>&1; then
-    timeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
-  elif command -v gtimeout >/dev/null 2>&1; then
-    gtimeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
-  else
-    "$BOARD_SHIM" "$@" 2>"$err" || rc=$?
-  fi
-  if [ "$rc" -ne 0 ]; then
-    board_log "$hook" "board $what failed (exit $rc): $(head -c 300 "$err" | tr '\n' ' ')"
+  (
+    if [ -n "$BOARD_CWD" ]; then cd "$BOARD_CWD" 2>/dev/null || exit 96; fi
+    if command -v timeout >/dev/null 2>&1; then
+      exec timeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+      exec gtimeout "$BOARD_CLI_TIMEOUT" "$BOARD_SHIM" "$@"
+    else
+      exec "$BOARD_SHIM" "$@"
+    fi
+  ) 2>"$err" || rc=$?
+  if [ "$rc" -eq 96 ]; then
+    board_log "$hook" "board $what: cwd $BOARD_CWD does not exist"
+  elif [ "$rc" -ne 0 ]; then
+    if grep -q 'no board here' "$err"; then
+      board_log "$hook" "no board here: $(head -c 200 "$err" | tr '\n' ' ')"
+    else
+      board_log "$hook" "board $what failed (exit $rc): $(head -c 300 "$err" | tr '\n' ' ')"
+    fi
   fi
   rm -f "$err"
   return "$rc"
@@ -346,10 +356,23 @@ board_resolve() {
   printf '%s\n' "$ident"
 }
 
+# board_focus_id HOOK -> prints the focused item id, or nothing
+# The focus file is the binding now: written by task_focus or `board focus`,
+# per checkout, read here ahead of the session state and the environment.
+# Gated on board_would_send like every other reach into the binary, so
+# CLAUDECODE_AGENTS_BOARD=off and a dry run stay entirely offline.
+board_focus_id() {
+  local hook="$1" out
+  board_would_send || return 1
+  out="$(board_cli "$hook" focus --show)" || return 1
+  [ -n "$out" ] || return 1
+  printf '%s\n' "$out"
+}
+
 # board_set_status HOOK ID COLUMN
 board_set_status() {
   local hook="$1" id="$2" col="$3"
-  board_cli "$hook" task edit "$id" -s "$col" >/dev/null || return 1
+  board_cli "$hook" task edit "$id" -s "$col" --by "$hook" >/dev/null || return 1
   board_log "$hook" "$id -> $col"
 }
 
@@ -363,7 +386,7 @@ board_comment_raw() {
     board_log "$hook" "no comment text; nothing posted on $id"
     return 1
   fi
-  board_cli "$hook" task edit "$id" --comment "$text" --comment-author "@$hook" >/dev/null || return 1
+  board_cli "$hook" task edit "$id" --comment "$text" --comment-author "@$hook" --by "$hook" >/dev/null || return 1
   board_log "$hook" "commented on $id"
 }
 

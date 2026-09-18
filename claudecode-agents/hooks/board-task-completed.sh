@@ -45,6 +45,7 @@ fi
 
 session_id="$(printf '%s' "$input" | jq -r '.session_id // ""')"
 cwd="$(printf '%s' "$input" | jq -r '.cwd // ""')"
+export BOARD_CWD="$cwd"
 task_id="$(printf '%s' "$input" | jq -r '.task_id // ""')"
 # `task_subject` is the field the runtime actually sends. Checked against the
 # TaskCompleted schema in the shipped CLI, which carries task_id, task_subject,

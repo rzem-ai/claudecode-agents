@@ -24,23 +24,16 @@ fi
 session_id="$(printf '%s' "$input" | jq -r '.session_id // ""')"
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // ""')"
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // ""')"
-# There is no spawn prompt on this event. The SubagentStart schema in the
-# shipped CLI is the common fields plus agent_id and agent_type - no
-# `instructions`, no `prompt`, no `initial_prompt`. The comment that used to sit
-# here said the field name was "confirmed"; it was not, and the Board-Item:
-# binding it promised has never fired once.
-#
-# The environment variable is therefore the whole supported binding: one
-# dedicated session, one board item, named at launch.
-#
-#   CLAUDECODE_AGENTS_BOARD_PAGE_ID=1111... claude --agent claudecode-agents:lead
-#
-# This is narrower than the multi-item promise it replaces, and it should not be
-# described as the same thing. Restoring per-agent binding needs a supported way
-# to correlate a spawn with its subagent identity; a shared "latest prompt" file
-# is not it, because two agents spawned together would race for the same line.
-# `instructions` is still read first so that a runtime which starts sending one
-# works without another change here.
+cwd="$(printf '%s' "$input" | jq -r '.cwd // ""')"
+export BOARD_CWD="$cwd"
+# There is no spawn prompt on this event - the SubagentStart schema is the
+# common fields plus agent_id and agent_type - so the binding comes from the
+# checkout, not the spawn. In order: the focus file the lead wrote with
+# task_focus (or the human with /work), then the item this session most
+# recently picked up, then the launch-time environment variable, kept last so
+# a stale one in a shell never overrides a focus. `instructions` is still read
+# first so that a runtime which starts sending one works without another
+# change here.
 instructions="$(printf '%s' "$input" | jq -r '.instructions // .prompt // .initial_prompt // ""')"
 
 page_id=""
@@ -54,6 +47,13 @@ if [ -n "$instructions" ]; then
   fi
 fi
 
+if [ -z "$page_id" ]; then
+  if page_id="$(board_focus_id "$HOOK")"; then source_of_id="focus file"; else page_id=""; fi
+fi
+if [ -z "$page_id" ]; then
+  if page_id="$(state_session_page_id "$session_id")"; then source_of_id="session's last item"; else page_id=""; fi
+fi
+
 if [ -z "$page_id" ] && [ -n "${CLAUDECODE_AGENTS_BOARD_PAGE_ID:-}" ]; then
   if page_id="$(normalise_page_id "$CLAUDECODE_AGENTS_BOARD_PAGE_ID")"; then
     source_of_id="CLAUDECODE_AGENTS_BOARD_PAGE_ID"
@@ -64,7 +64,7 @@ if [ -z "$page_id" ] && [ -n "${CLAUDECODE_AGENTS_BOARD_PAGE_ID:-}" ]; then
 fi
 
 if [ -z "$page_id" ]; then
-  board_log "$HOOK" "no board item for ${agent_type:-unknown agent} (${agent_id:-no id}): this session is unbound. Launch with CLAUDECODE_AGENTS_BOARD_PAGE_ID set to bind one item to the session. Nothing moved. See hooks/README.md."
+  board_log "$HOOK" "no board item for ${agent_type:-unknown agent} (${agent_id:-no id}): nothing is focused in this checkout. Call task_focus <id> (or run /work <id>) before spawning against an item. Nothing moved. See hooks/README.md."
   exit 0
 fi
 

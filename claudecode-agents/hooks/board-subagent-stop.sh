@@ -253,6 +253,8 @@ fi
 session_id="$(printf '%s' "$input" | jq -r '.session_id // ""')"
 agent_id="$(printf '%s' "$input" | jq -r '.agent_id // ""')"
 agent_type="$(printf '%s' "$input" | jq -r '.agent_type // ""')"
+cwd="$(printf '%s' "$input" | jq -r '.cwd // ""')"
+export BOARD_CWD="$cwd"
 message="$(printf '%s' "$input" | jq -r '.last_assistant_message // ""')"
 # Absent is not empty. A subagent spawned with a schema is forced through
 # StructuredOutput and the runtime omits last_assistant_message entirely - the
