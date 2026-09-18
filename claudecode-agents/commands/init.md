@@ -30,6 +30,17 @@ If `.claude/settings.json` does not exist, copy the template as-is. If it exists
 - `${CLAUDE_PLUGIN_ROOT}/templates/rules/glossary.md` -> `.claude/rules/glossary.md`. If it exists but differs from the template, replace it - the file is generated and the plugin's copy is current; never hand-merge it.
 - Create `docs/specs/` and `docs/plans/` if missing.
 
+## 2b. Board
+
+The board is this repository's, at `.boards/`, committed like any other project file, and the fleet's hooks and the board MCP server find it from the working directory through git. Create it here so the first `/kickoff` has one to check.
+
+- If `.boards/config.yml` exists, say so and skip the rest of this step.
+- Otherwise copy `${CLAUDE_PLUGIN_ROOT}/templates/board.config.yml` to `.boards/config.yml` and `${CLAUDE_PLUGIN_ROOT}/templates/board.gitignore` to `.boards/.gitignore`, and create `.boards/tasks/`, `.boards/docs/` and `.boards/milestones/`, each holding a `.gitkeep` so an empty directory survives a clone.
+- Set `project_name` in the copied config to the repository's directory name. Then offer the prefix with AskUserQuestion: `BD` (recommended) or a short upper-case one derived from the repository name, two to four letters. Write the answer as `task_prefix`.
+- Say that every write the binary makes will be committed on the checked-out branch, and that `auto_commit: false` in the config or `CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1` in a shell turns that off.
+
+Renumber nothing: step 3 below stays step 3. Add `.boards/` to the reminder in step 4's report, alongside `.claude/settings.json`, as something to commit.
+
 ## 3. Guided fill
 
 Skip this step entirely if step 2 skipped `CLAUDE.md`.
@@ -42,7 +53,7 @@ If the human declines the interview, fill the markers you inferred with confiden
 
 ## 4. Report
 
-End with a short report: whether step 0 created a repository, what was created, what was merged and which keys, what was skipped and why, any settings conflicts, and any markers still unfilled. Remind the human to commit `.claude/settings.json` (and the rest) so every clone and every Claude Code on the web session gets the same fleet.
+End with a short report: whether step 0 created a repository, what was created, what was merged and which keys, what was skipped and why, any settings conflicts, and any markers still unfilled. Remind the human to commit `.claude/settings.json` and `.boards/` (and the rest) so every clone and every Claude Code on the web session gets the same fleet.
 
 Then say what comes next, exactly: restart Claude Code and trust the folder - the new settings, `CLAUDE.md` and (if it was not already installed) the plugin all load at session start, so nothing done here is live until then - and in the new session run `/claudecode-agents:kickoff` to verify the install and start the first piece of work.
 

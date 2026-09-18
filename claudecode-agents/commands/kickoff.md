@@ -22,25 +22,26 @@ If anything failed: report every failure with its one-line fix (`/claudecode-age
 
 Run this step only when `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version` succeeds. On a machine where the binary has never been built it will not, and that is a legitimate outcome: say so and move on. Read the `board` skill first; it is the contract this step is verifying. No board is a legitimate outcome throughout - most work is not board work, and the human declining any part of this is a note in the report, never a failure.
 
-**Check.** The board is a directory of markdown files under the memory tree, so everything here is a file read. The root is `CLAUDECODE_AGENTS_BOARD_ROOT`, defaulting to `$HOME/.memory`:
+**Check.** The board is this repository's, at `.boards/` in the main checkout, so everything here is a file read:
 
-- `board/config.yml` exists under that root. If it does not, the installer has not run on this machine; say that and stop the step. Do not write the file yourself - that is the installer's job, and guessing at it writes a board the other three machines will conflict with.
+- `.boards/config.yml` exists. If it does not, say that `/init` creates it and stop the step; do not write it yourself.
 - Its `statuses` are the five the fleet uses, spelled `To Do`, `Doing`, `Blocked`, `Blocked by human`, `Done`. The hooks match them ignoring case, so a difference in case is not a failure; a different word is, and the fix is the config rather than a `BOARD_COL_*` override in `~/.config/claudecode-agents/board.env` - the override leaves every other reader seeing the odd name.
-- This repo's project name is in the config's `projects` list. Match by name against the repo.
 - Its `labels` carry `outcome/shipped`, `outcome/abandoned` and `outcome/superseded`.
+- `.boards/.gitignore` ignores `.focus`. Without it, a focus lands in a commit and follows the branch around.
+- `git check-ignore -q .boards` fails, or say that the board is gitignored here and so is per checkout and dies with the clone - allowed, and worth saying once.
 
-**Setup.** Say what is missing and ask the human before changing anything - the config is one file on a memory tree four machines share. On a yes: add this repo's name to `projects` in `board/config.yml`, and add any of the three `outcome/*` labels the `labels` list is missing, in the same edit. Then commit the memory tree with a `git -C "$CLAUDECODE_AGENTS_BOARD_ROOT"` add and commit. The memory watcher may commit it first, which is fine; what matters is that the change is committed rather than left loose in the tree, because an uncommitted config edit reaches no other machine. The `statuses` list is not yours to repair here - a tree whose statuses are wrong is an installer problem, and renaming a status under live items is not a kickoff-sized change.
+**Setup.** Say what is missing and ask the human before changing anything. On a yes: add the missing `outcome/*` labels to `labels`, add the `.gitignore`, and leave the change for the binary's next commit or commit it yourself with `git add .boards && git commit -m "board: config"`. The `statuses` list is not yours to repair here - renaming a status under live items is not a kickoff-sized change.
 
 **State the conventions.** End the board section by saying, concretely, what the fleet will use - so the session and the human agree before the first item is filed:
 
-- the board root, and that the items are the files under `board/tasks/` in it,
-- the prefix `BD`, so an item is `BD-12` and a sub-item `BD-12.1`,
+- that the board is `.boards/` in this repository and the items are the files under `.boards/tasks/`,
+- the prefix from the config, so an item is `BD-12` and a sub-item `BD-12.1`,
 - the five status names as the config spells them,
-- the project this repo's items go in, as it appears in the config's list,
 - labels: `outcome/shipped`, `outcome/abandoned` and `outcome/superseded` on an item at close, nothing else load-bearing,
-- and the binding reminder: a board session launches with `CLAUDECODE_AGENTS_BOARD_PAGE_ID=BD-12`, and only a task subject carrying `[board:BD-12]` closes an item.
+- that every write the binary makes is a commit on the checked-out branch, `board: BD-12 Doing (SubagentStart)`, never pushed,
+- and the binding: call `task_focus BD-12` (or the human runs `/work BD-12`) before spawning against an item, and only a task subject carrying `[board:BD-12]` closes one.
 
-**What this step cannot do, said out loud.** It can see the shim answer, but not whether the binary that shim found is the one this plugin version expects. The binary is built into `~/.local/bin/board` by `scripts/install-home.sh` and never committed, so a plugin update reaches a machine long before a rebuild does. End with the one manual check: `~/.local/bin/board --version` against the `version` in `${CLAUDE_PLUGIN_ROOT}/board/package.json`. If they differ, re-run the installer. A `board shim missing at ...` line, the shim's own `board: no binary at ~/.local/bin/board ...` line, or a `board <cmd> failed (exit N): ...` line in `~/.local/state/claudecode-agents/log/hooks.log` after the first real spawn is the symptom of a board the hooks cannot reach.
+**What this step cannot do, said out loud.** It can see the shim answer, but not whether the binary that shim found is the one this plugin version expects. The binary is built into `~/.local/bin/board` by `scripts/install-home.sh` and never committed, so a plugin update reaches a machine long before a rebuild does. End with the one manual check: `~/.local/bin/board --version` against the `version` in `${CLAUDE_PLUGIN_ROOT}/board/package.json`. If they differ, re-run the installer. A `board shim missing at ...` line, a `no board here` line, or a `board <cmd> failed (exit N): ...` line in `~/.local/state/claudecode-agents/log/hooks.log` after the first real spawn is the symptom of a board the hooks cannot reach.
 
 ## The idea
 

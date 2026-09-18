@@ -9,10 +9,9 @@
 #      ~/.claude/CLAUDE.md (section 8).
 #   2. Render the ten per-agent rzem-memory credentials out of 1Password with
 #      `op read` into ~/.config/claudecode-agents/ at mode 600 (section 6).
-#   3. Make the fleet's board usable here: build the binary into
-#      ~/.local/bin/board, write home/board.config.yml to the memory tree as
-#      board/config.yml when that file does not exist, and give the memory
-#      watcher the board scope. A hand-edited config is never overwritten.
+#   3. Build the board binary into ~/.local/bin/board. The board itself lives
+#      in each repository at .boards/ (created by /init) and is nothing the
+#      installer touches.
 #
 # What it never touches: ~/.claude/projects/, sessions, history, todos, debug,
 # logs, shell snapshots and plugins/cache. Those are per-machine state and this
@@ -404,8 +403,7 @@ install_tree() {
     # $1 source directory, $2 label for the log, then any number of relative
     # prefixes to skip. The base tree passes "hosts/" so per-box overlays are not
     # installed wholesale - the overlay for this box is applied afterwards, on
-    # its own - and "board.config.yml", which is a template for the memory tree
-    # and belongs to install_board, not to ~/.claude.
+    # its own.
     local src="$1" label="$2" file rel skip
     shift 2
     [ -d "$src" ] || return 0
@@ -507,21 +505,15 @@ EOF
 # The board
 # ---------------------------------------------------------------------------
 #
-# The board lives in the memory tree, not in ~/.claude: the tree is already a
-# git clone synced across the boxes, so the tasks follow the machines for free.
-# This writes board/config.yml only when it does not exist - a hand edit there
-# is the machine's own, and outranks the template.
+# The board lives in each repository at .boards/, created by /init and
+# committed like any other project file. This installer's only job here is
+# the binary.
 
 install_board() {
-    local tree="${CLAUDECODE_AGENTS_BOARD_ROOT:-$HOME/.memory}"
     local pkg="$REPO_ROOT/claudecode-agents/board"
-    local cfg="$tree/board/config.yml"
-    local watcher="$tree/.sync/memory-watch.sh"
     local log
     say ""
-    say "Board ($tree/board)"
-
-    [ -d "$tree" ] || { warn "no memory tree at $tree; skipping the board (clone alexrzem/memory first)"; return 0; }
+    say "Board binary"
 
     if ! command -v bun >/dev/null 2>&1; then
         warn "bun is not installed; the board binary cannot be built."
@@ -542,32 +534,6 @@ install_board() {
             N_BOARD_FAILED=$((N_BOARD_FAILED + 1))
         fi
         rm -f "$log"
-    fi
-
-    if [ -f "$cfg" ]; then
-        if cmp -s "$HOME_SRC/board.config.yml" "$cfg"; then
-            N_UNCHANGED=$((N_UNCHANGED + 1))
-        else
-            info "kept           board/config.yml (differs from the template; diff below)"
-            diff "$HOME_SRC/board.config.yml" "$cfg" | sed 's/^/    /' || true
-            N_SKIPPED=$((N_SKIPPED + 1))
-        fi
-    elif [ "$DRY_RUN" -eq 1 ]; then
-        info "would create   board/config.yml"
-    else
-        mkdir -p "$tree/board/tasks" "$tree/board/docs" "$tree/board/milestones"
-        cp "$HOME_SRC/board.config.yml" "$cfg"
-        info "created        board/config.yml"
-        N_CREATED=$((N_CREATED + 1))
-    fi
-
-    if [ -f "$watcher" ] && ! grep -q 'for scope in global hosts projects board' "$watcher"; then
-        if [ "$DRY_RUN" -eq 1 ]; then
-            info "would add      board to the memory watcher's scopes"
-        else
-            sed -i.bak 's/for scope in global hosts projects; do/for scope in global hosts projects board; do/' "$watcher" && rm -f "$watcher.bak"
-            info "updated        memory watcher scopes (restart the watcher to pick it up)"
-        fi
     fi
 }
 
@@ -610,7 +576,7 @@ if [ "$DO_HOME" -eq 1 ]; then
     if [ "$DRY_RUN" -eq 0 ]; then
         mkdir -p "$CLAUDE_DIR"
     fi
-    install_tree "$HOME_SRC" "Base tree" "hosts/" "board.config.yml"
+    install_tree "$HOME_SRC" "Base tree" "hosts/"
     if [ -d "$HOST_OVERLAY" ]; then
         install_tree "$HOST_OVERLAY" "Host overlay for $HOSTNAME_SHORT"
     fi
