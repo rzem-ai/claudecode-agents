@@ -6,7 +6,7 @@ import { BOARD_DIR } from "../board-root.ts";
 import { Core } from "../core/backlog.ts";
 import { FOCUS_FILE, writeFocus } from "../core/focus.ts";
 import { resetCommitContext, setCommitContext } from "../git/commit-context.ts";
-import { formatCommitSubject } from "../git/operations.ts";
+import { commitMessageArgs, formatCommitSubject } from "../git/operations.ts";
 
 // Every write the binary makes is committed, pathspec-limited to .boards, on
 // the main checkout's current branch. The human's own staged work is never
@@ -50,27 +50,43 @@ afterEach(() => {
 });
 
 describe("formatCommitSubject", () => {
-	it("names the id, the note and the writer", () => {
-		expect(formatCommitSubject("BD-1", "Doing", "SubagentStop")).toBe("board: BD-1 Doing (SubagentStop)");
-		expect(formatCommitSubject("BD-1", "created")).toBe("board: BD-1 created");
-		expect(formatCommitSubject(undefined, "milestone added")).toBe("board: milestone added");
+	it("is the imperative action on the board, with no prefix", () => {
+		expect(formatCommitSubject("Move BD-1 to Doing")).toBe("Move BD-1 to Doing on the board");
+		expect(formatCommitSubject("Create BD-1")).toBe("Create BD-1 on the board");
+		expect(formatCommitSubject("Add milestone m-1")).toBe("Add milestone m-1 on the board");
+	});
+
+	it("puts the writer in a trailer paragraph, never the subject", () => {
+		expect(commitMessageArgs("Update BD-1", "SubagentStop")).toEqual([
+			"-m",
+			"Update BD-1 on the board",
+			"-m",
+			"Board-Writer: SubagentStop",
+		]);
+		expect(commitMessageArgs("Update BD-1")).toEqual(["-m", "Update BD-1 on the board"]);
 	});
 });
+
+function writer(): string {
+	return git("log", "-1", "--format=%(trailers:key=Board-Writer,valueonly)");
+}
 
 describe("the binary commits its writes", () => {
 	it("commits a create with a subject naming the id", async () => {
 		const core = new Core(repo);
 		const { task } = await core.createTaskFromInput({ title: "First" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} created`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${task.id} on the board`);
+		expect(writer()).toBe("");
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
-	it("commits a status move with the status as the note and the writer in parens", async () => {
+	it("commits a status move naming the status, with the writer as a trailer", async () => {
 		const core = new Core(repo);
 		const { task } = await core.createTaskFromInput({ title: "First" });
-		setCommitContext({ by: "SubagentStop", note: "Doing" });
+		setCommitContext({ by: "SubagentStop", note: `Move ${task.id} to Doing` });
 		await core.updateTaskFromInput(task.id, { status: "Doing" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} Doing (SubagentStop)`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Move ${task.id} to Doing on the board`);
+		expect(writer()).toBe("SubagentStop");
 	});
 
 	it("leaves the human's staged work out of the commit", async () => {
@@ -129,7 +145,7 @@ describe("the binary commits its writes", () => {
 			process.env.PATH = path;
 			logged.mockRestore();
 		}
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} created`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${task.id} on the board`);
 		expect(git("diff", "--cached", "--name-only", "--", BOARD_DIR)).toBe("");
 		expect(git("status", "--porcelain")).toContain(BOARD_DIR);
 	});
@@ -167,7 +183,7 @@ describe("the binary commits its writes", () => {
 		setTimeout(() => rmSync(lock, { force: true }), 400);
 		const core = new Core(repo);
 		const { task } = await core.createTaskFromInput({ title: "First" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} created`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${task.id} on the board`);
 	});
 
 	it("logs and keeps the file when the commit cannot be made at all", async () => {
@@ -196,7 +212,7 @@ describe("the binary commits its writes", () => {
 		git("commit", "-q", "-m", "sub base");
 		const core = new Core(sub);
 		const { task } = await core.createTaskFromInput({ title: "Nested" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} created`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${task.id} on the board`);
 		expect(git("show", "--stat", "--format=", "HEAD")).toContain(`sub/${BOARD_DIR}/tasks`);
 	});
 
@@ -226,20 +242,23 @@ describe("the binary commits its writes", () => {
 		setCommitContext({ by: "mcp" });
 		const core = new Core(repo);
 		const { task: first } = await core.createTaskFromInput({ title: "First" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${first.id} created (mcp)`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${first.id} on the board`);
+		expect(writer()).toBe("mcp");
 		const { task: second } = await core.createTaskFromInput({ title: "Second" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${second.id} created (mcp)`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Create ${second.id} on the board`);
+		expect(writer()).toBe("mcp");
 	});
 
 	it("does not leak one write's note into the next", async () => {
 		setCommitContext({ by: "mcp" });
 		const core = new Core(repo);
 		const { task } = await core.createTaskFromInput({ title: "First" });
-		setCommitContext({ note: "Doing" });
+		setCommitContext({ note: `Move ${task.id} to Doing` });
 		await core.updateTaskFromInput(task.id, { status: "Doing" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} Doing (mcp)`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Move ${task.id} to Doing on the board`);
 		await core.updateTaskFromInput(task.id, { title: "First, retitled" });
-		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} updated (mcp)`);
+		expect(git("log", "-1", "--format=%s")).toBe(`Update ${task.id} on the board`);
+		expect(writer()).toBe("mcp");
 	});
 
 	it("leaves .boards unstaged when a commit fails mid-merge", async () => {

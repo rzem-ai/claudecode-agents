@@ -30,7 +30,7 @@ Run this step only when `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version` succeed
 - `.boards/.gitignore` ignores `.focus`. Without it, a focus lands in a commit and follows the branch around.
 - `git check-ignore -q .boards` fails, or say that the board is gitignored here and so is per checkout and dies with the clone - allowed, and worth saying once.
 
-**Setup.** Say what is missing and ask the human before changing anything. On a yes: add the missing `outcome/*` labels to `labels`, add the `.gitignore`, and leave the change for the binary's next commit or commit it yourself with `git add .boards && git commit -m "board: config"`. The `statuses` list is not yours to repair here - renaming a status under live items is not a kickoff-sized change.
+**Setup.** Say what is missing and ask the human before changing anything. On a yes: add the missing `outcome/*` labels to `labels`, add the `.gitignore`, and leave the change for the binary's next commit or commit it yourself with `git add .boards && git commit -m "Add the board config"`. The `statuses` list is not yours to repair here - renaming a status under live items is not a kickoff-sized change.
 
 **State the conventions.** End the board section by saying, concretely, what the fleet will use - so the session and the human agree before the first item is filed:
 
@@ -38,7 +38,7 @@ Run this step only when `${CLAUDE_PLUGIN_ROOT}/board/board.sh --version` succeed
 - the prefix from the config, so an item is `BD-12` and a sub-item `BD-12.1`,
 - the five status names as the config spells them,
 - labels: `outcome/shipped`, `outcome/abandoned` and `outcome/superseded` on an item at close, nothing else load-bearing,
-- that every write the binary makes is a commit on the checked-out branch, `board: BD-12 Doing (SubagentStart)`, never pushed,
+- that every write the binary makes is a commit on the checked-out branch, `Move BD-12 to Doing on the board` with a `Board-Writer: SubagentStart` trailer, never pushed,
 - and the binding: call `task_focus BD-12` (or the human runs `/work BD-12`) before spawning against an item, and only a task subject carrying `[board:BD-12]` closes one.
 
 **What this step cannot do, said out loud.** It can see the shim answer, but not whether the binary that shim found is the one this plugin version expects. The binary is built into `~/.local/bin/board` by `scripts/install-home.sh` and never committed, so a plugin update reaches a machine long before a rebuild does. End with the one manual check: `~/.local/bin/board --version` against the `version` in `${CLAUDE_PLUGIN_ROOT}/board/package.json`. If they differ, re-run the installer. A `board shim missing at ...` line, a `no board here` line, or a `board <cmd> failed (exit N): ...` line in `~/.local/state/claudecode-agents/log/hooks.log` after the first real spawn is the symptom of a board the hooks cannot reach.

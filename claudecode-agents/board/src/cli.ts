@@ -153,8 +153,8 @@ task
 		if (!current) fail(`no task ${taskId}`);
 		if (o.comment?.length && !o.commentAuthor) fail("--comment needs --comment-author");
 		if (o.by) setCommitContext({ by: o.by });
-		if (o.status) setCommitContext({ note: await statusOrFail(c, o.status) });
-		else if (o.comment?.length) setCommitContext({ note: "comment" });
+		if (o.status) setCommitContext({ note: `Move ${current.id} to ${await statusOrFail(c, o.status)}` });
+		else if (o.comment?.length) setCommitContext({ note: `Add a comment to ${current.id}` });
 		const args: TaskEditArgs = {
 			title: o.title,
 			description: o.description,
