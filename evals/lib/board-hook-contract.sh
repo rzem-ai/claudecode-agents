@@ -476,8 +476,10 @@ else
     # on a false signal: grep stops reading as soon as it has its match, and
     # git can then be killed by SIGPIPE before it exits cleanly - a real race,
     # not a correctness question. Capturing the log first side-steps it.
-    LIVE_SUBJECTS="$(git -C "$LIVE" log --format=%s)"
-    printf '%s\n' "$LIVE_SUBJECTS" | grep -q "board: $ID comment (SubagentStop)"; check live-comment-commits "the comment is its own commit" $?
+    # One line per commit: subject, a tab, then the Board-Writer trailer.
+    LIVE_SUBJECTS="$(git -C "$LIVE" log --format='%s%x09%(trailers:key=Board-Writer,valueonly,separator=%x2C)')"
+    printf '%s\n' "$LIVE_SUBJECTS" | grep -qxF "$(printf 'Add a comment to %s on the board\tSubagentStop' "$ID")"
+    check live-comment-commits "the comment is its own commit, naming the hook in a trailer" $?
 
     # Two switches. NO_COMMIT writes the file and nothing else; a cwd outside
     # any repository has no board, and the hook says so and exits 0.
