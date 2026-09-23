@@ -7,14 +7,14 @@
     "url": "https://github.com/rzem-ai"
   },
   "description": "Private marketplace for the rzem Claude Code subagent fleet.",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "plugins": [
     {
       "name": "claudecode-agents",
       "displayName": "Claude Code Agents",
       "source": "./claudecode-agents",
       "description": "A role-shaped subagent fleet: agents, shared skills, the board and its hooks, and workflows.",
-      "version": "0.20.0",
+      "version": "0.21.0",
       "author": {
         "name": "Alex",
         "email": "alex@rzem.com"
