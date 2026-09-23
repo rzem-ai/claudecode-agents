@@ -1,5 +1,5 @@
 {
-  "description": "Board writes and per-agent tool scoping for the fleet. SubagentStart moves the item to Doing, SubagentStop writes Blocked or Blocked by human and enforces the handoff format, matched to the ten fleet agents so the gate never fires on a Plan or general-purpose lane - which is necessary but was never sufficient, since the workflows spawn fleet agents with schemas too, and those are told apart by their transcript rather than by their name, TaskCompleted gates on tests and writes Done or Blocked, and PreToolUse enforces the per-agent invariants that session-scoped permissions.deny cannot express.",
+  "description": "Board writes and per-agent tool scoping for the fleet. SubagentStart moves the item to Doing, SubagentStop writes Blocked or Blocked by human and enforces the handoff format, matched to the eleven fleet agents so the gate never fires on a Plan or general-purpose lane - which is necessary but was never sufficient, since the workflows spawn fleet agents with schemas too, and those are told apart by their transcript rather than by their name, TaskCompleted gates on tests and writes Done or Blocked, and PreToolUse enforces the per-agent invariants that session-scoped permissions.deny cannot express.",
   "hooks": {
     "SubagentStart": [
       {
@@ -15,7 +15,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "^(claudecode-agents:)?(lead|scout|spec-writer|coder|reviewer|ui-designer|tech-writer|researcher|fleet-steward|refuter)$",
+        "matcher": "^(claudecode-agents:)?(lead|scout|spec-writer|coder|scripter|reviewer|ui-designer|tech-writer|researcher|fleet-steward|refuter)$",
         "hooks": [
           {
             "type": "command",
