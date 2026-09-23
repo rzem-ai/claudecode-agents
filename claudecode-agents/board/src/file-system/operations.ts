@@ -26,6 +26,7 @@ import {
 	idForFilename,
 	normalizeId,
 } from "../utils/prefix-config.ts";
+import { toPersistedPriority } from "../utils/priority-config.ts";
 import { matchesProjectFilter } from "../utils/project-config.ts";
 import { normalizeStatusSet, statusMatchesSet } from "../utils/status-filter.ts";
 import { withoutVacatedTaskLinks } from "../utils/task-links.ts";
@@ -817,6 +818,7 @@ export class FileSystem {
 			...task,
 			id: persistedTaskId,
 			parentTaskId: persistedParentTaskId,
+			priority: toPersistedPriority(task.priority, await this.loadConfig()),
 		};
 		const content = serializeTask(normalizedTask);
 
@@ -1274,7 +1276,11 @@ export class FileSystem {
 		const { id: draftId, filename, filePath: filepath } = await this.resolveTaskWriteTarget(task, true);
 		const draftsDir = await this.getDraftsDir();
 		// Normalize the draft ID to uppercase before serialization
-		const normalizedTask = { ...task, id: draftId };
+		const normalizedTask = {
+			...task,
+			id: draftId,
+			priority: toPersistedPriority(task.priority, await this.loadConfig()),
+		};
 		const content = serializeTask(normalizedTask);
 
 		// Remove every existing draft file whose numeric identity matches the saved id but
