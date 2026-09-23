@@ -8,7 +8,6 @@
 import { BOARD_DIR } from "../board-root.ts";
 import { FOCUS_FILE } from "../core/focus.ts";
 import type { BacklogConfig } from "../types/index.ts";
-import { escapeRegExp } from "./branch-ids.ts";
 import { clearCommitNote, getCommitContext } from "./commit-context.ts";
 
 /** The focus file is never part of a board commit; see `src/core/focus.ts`. */
@@ -31,9 +30,22 @@ export const NO_COMMIT_ENV = "CLAUDECODE_AGENTS_BOARD_NO_COMMIT";
 const LOCK_RETRIES = 3;
 const LOCK_RETRY_MS = 300;
 
-export function formatCommitSubject(id: string | undefined, note: string, by?: string): string {
-	const head = id ? `board: ${id} ${note}` : `board: ${note}`;
-	return by ? `${head} (${by})` : head;
+/** The trailer that names who made a board write; the subject never does. */
+export const WRITER_TRAILER = "Board-Writer";
+
+/**
+ * A board commit's subject: the imperative action, then "on the board", with
+ * no prefix, so it reads like the repository's own commits. `action` already
+ * names the item, as in `Update BD-2` or `Move BD-2 to Doing`.
+ */
+export function formatCommitSubject(action: string): string {
+	return `${action} on the board`;
+}
+
+/** `git commit` arguments for the subject and, when there is a writer, its trailer paragraph. */
+export function commitMessageArgs(action: string, by?: string): string[] {
+	const args = ["-m", formatCommitSubject(action)];
+	return by ? [...args, "-m", `${WRITER_TRAILER}: ${by}`] : args;
 }
 
 function run(cwd: string, args: string[]): { code: number; out: string; err: string } {
@@ -94,20 +106,22 @@ export class GitOperations {
 	 * first runs `git reset -- .boards`, so a commit that cannot be made never
 	 * leaves .boards sitting in the human's index (a failed add can still have
 	 * staged, and git refuses a partial commit mid-merge; neither may survive).
-	 * The file write has already happened either way. The commit note is
+	 * The file write has already happened either way. `action` is the
+	 * imperative phrase for the subject; a note in the commit context, set by
+	 * the CLI for a status move or a comment, replaces it. The commit note is
 	 * always cleared here, win or lose, so a later write in the same process
 	 * is never labelled with this one's note; `by` is left alone, since a
 	 * long-lived caller such as the MCP server sets it once and every commit it
 	 * makes should still carry it.
 	 */
-	async commitBoard(note: string, taskId?: string): Promise<boolean> {
+	async commitBoard(action: string): Promise<boolean> {
 		try {
 			if (process.env[NO_COMMIT_ENV] === "1") return false;
 			const root = await this.getRepositoryRoot();
 			if (!root) return false;
 			if (run(this.projectRoot, ["check-ignore", "-q", BOARD_DIR]).code === 0) return false;
 			const ctx = getCommitContext();
-			const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
+			const message = commitMessageArgs(ctx.note ?? action, ctx.by);
 			for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
 				const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
 				if (add.code !== 0 && /index\.lock/.test(add.err)) {
@@ -125,7 +139,7 @@ export class GitOperations {
 				// Decide that from the index, not from git's commit-failure prose.
 				const diff = run(this.projectRoot, ["diff", "--cached", "--quiet", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (diff.code === 0) return false;
-				const commit = run(this.projectRoot, ["commit", "-q", "-m", subject, "--", BOARD_DIR, EXCLUDE_FOCUS]);
+				const commit = run(this.projectRoot, ["commit", "-q", ...message, "--", BOARD_DIR, EXCLUDE_FOCUS]);
 				if (commit.code === 0) return true;
 				// Returns the .boards index to HEAD, so a human who had deliberately
 				// staged a .boards change of their own finds it unstaged again but
@@ -159,11 +173,9 @@ export class GitOperations {
 		await this.commitBoard(message.replace(/^backlog:\s*/i, ""));
 	}
 
-	async commitTaskChange(taskId: string, message: string, _filePath: string): Promise<void> {
-		const note = message.replace(new RegExp(`^(Create|Update) (draft )?${escapeRegExp(taskId)}$`), (_m, verb) =>
-			verb === "Create" ? "created" : "updated",
-		);
-		await this.commitBoard(note, taskId);
+	/** `message` is already imperative and names the item: `Create draft BD-3`. */
+	async commitTaskChange(_taskId: string, message: string, _filePath: string): Promise<void> {
+		await this.commitBoard(message);
 	}
 
 	async addAndCommitTaskFile(
@@ -172,8 +184,8 @@ export class GitOperations {
 		action: "create" | "update" | "archive",
 		_onStaged?: (entries: GitIndexEntry[]) => void,
 	): Promise<void> {
-		const note = action === "create" ? "created" : action === "update" ? "updated" : "archived";
-		await this.commitBoard(note, taskId);
+		const verb = action === "create" ? "Create" : action === "update" ? "Update" : "Archive";
+		await this.commitBoard(`${verb} ${taskId}`);
 	}
 }
 

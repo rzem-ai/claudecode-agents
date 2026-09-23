@@ -449,7 +449,7 @@ else
     export CLAUDECODE_AGENTS_BOARD=on
     unset BOARD_DRY_RUN
     ID="$(cd "$LIVE" && "$SHIM" task create "Live item" --json | jq -r .task.id)"
-    [ "$(git -C "$LIVE" log -1 --format=%s)" = "board: $ID created" ]; check live-create-commits "a create commits with the id in the subject" $?
+    [ "$(git -C "$LIVE" log -1 --format=%s)" = "Create $ID on the board" ]; check live-create-commits "a create commits with the id in the subject" $?
 
     # Focus is the binding now. Written in the main checkout, read by the hook
     # run from the worktree: no environment variable anywhere.
@@ -458,7 +458,9 @@ else
         "$(jq -nc --arg t "claudecode-agents:coder" --arg c "$WTLIVE" \
             '{session_id:"live",agent_id:"a1",agent_type:$t,cwd:$c}')"
     [ "$(cd "$LIVE" && "$SHIM" task view "$ID" --json | jq -r .task.status)" = "Doing" ]; check live-start-doing "SubagentStart, run from a worktree, moves the main checkout's item to Doing via the focus" $?
-    [ "$(git -C "$LIVE" log -1 --format=%s)" = "board: $ID Doing (SubagentStart)" ]; check live-start-commits "the move is committed in the main checkout, naming the hook" $?
+    [ "$(git -C "$LIVE" log -1 --format=%s)" = "Move $ID to Doing on the board" ] \
+      && [ "$(git -C "$LIVE" log -1 --format='%(trailers:key=Board-Writer,valueonly)')" = "SubagentStart" ]
+    check live-start-commits "the move is committed in the main checkout, naming the hook in a trailer" $?
     [ -z "$(git -C "$WTLIVE" status --porcelain)" ]; check live-worktree-untouched "the worktree's copy of the board is untouched" $?
     log_has "from the focus file"; check live-focus-source "the log says the binding came from the focus file" $?
 
@@ -474,8 +476,10 @@ else
     # on a false signal: grep stops reading as soon as it has its match, and
     # git can then be killed by SIGPIPE before it exits cleanly - a real race,
     # not a correctness question. Capturing the log first side-steps it.
-    LIVE_SUBJECTS="$(git -C "$LIVE" log --format=%s)"
-    printf '%s\n' "$LIVE_SUBJECTS" | grep -q "board: $ID comment (SubagentStop)"; check live-comment-commits "the comment is its own commit" $?
+    # One line per commit: subject, a tab, then the Board-Writer trailer.
+    LIVE_SUBJECTS="$(git -C "$LIVE" log --format='%s%x09%(trailers:key=Board-Writer,valueonly,separator=%x2C)')"
+    printf '%s\n' "$LIVE_SUBJECTS" | grep -qxF "$(printf 'Add a comment to %s on the board\tSubagentStop' "$ID")"
+    check live-comment-commits "the comment is its own commit, naming the hook in a trailer" $?
 
     # Two switches. NO_COMMIT writes the file and nothing else; a cwd outside
     # any repository has no board, and the hook says so and exits 0.
