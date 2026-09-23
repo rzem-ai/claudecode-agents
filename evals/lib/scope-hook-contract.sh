@@ -423,6 +423,19 @@ git commit -m x" 'not a linked worktree' "$WT"
     allow_bash coder "cd $OTHER && git worktree add .claude/worktrees/agent-x -b agent-x" "$WT"
     deny_bash_saying_in coder "git -C $OTHER worktree remove $TMP/other-wt" 'not a linked worktree' "$WT"
     deny_bash_saying_in coder "cd $OTHER && git worktree prune" 'not a linked worktree' "$WT"
+
+    # scripter is coder's cheaper sibling, with the same isolation: worktree and
+    # the same guard behind it. With no dispatch entry it fell through to the
+    # no-op branch, so a scripter could commit to a main checkout unchallenged.
+    # It arrives as either form of agent_type, so both are asserted.
+    allow_bash scripter 'git commit -m x' "$WT"
+    allow_bash claudecode-agents:scripter 'git commit -m x' "$WT"
+    deny_bash_saying_in scripter 'git commit -m x' 'not a linked worktree' "$MAINCO"
+    deny_bash_saying_in claudecode-agents:scripter 'git switch -c fix/r1 HEAD' 'not a linked worktree' "$MAINCO"
+    deny_bash_saying_in scripter "cd $OTHER && git commit -m x" 'not a linked worktree' "$WT"
+    deny_bash_saying_in scripter 'git commit -m x' 'not a git repository' "$TMP"
+    allow_bash scripter 'git status' "$MAINCO"
+    allow_bash scripter "git -C $OTHER worktree add $TMP/scripter-wt -b agent-s" "$WT"
 fi
 
 printf '\nWrappers are transparent; sudo is not a wrapper\n'

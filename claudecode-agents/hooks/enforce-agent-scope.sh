@@ -1002,6 +1002,11 @@ enforce_reviewer() {
 # would fail anyway. Not being able to tell is not permission: the whole point
 # is the case where isolation silently did not happen, which is exactly when
 # nothing announces itself.
+#
+# scripter is dispatched here too. It is coder's cheaper sibling with the same
+# isolation: worktree and the same invariant, and nothing below reads the agent
+# name - the decision rests only on the command, its cwd and what git says the
+# target directory is - so one guard serves both.
 CODER_WRITING_GIT=" commit switch checkout branch reset merge rebase push stash cherry-pick revert am apply tag clean rm mv restore worktree "
 
 # The directory a git command actually targets: its -C if it has one, else the
@@ -1270,6 +1275,7 @@ case "$agent" in
   reviewer)      enforce_reviewer ;;
   ui-designer)   enforce_ui_designer ;;
   coder)         enforce_coder ;;
+  scripter)      enforce_coder ;;
   refuter)       enforce_refuter ;;
   *)             ;;
 esac
