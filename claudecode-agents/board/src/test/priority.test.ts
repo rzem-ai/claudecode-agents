@@ -1,10 +1,13 @@
 import { describe, expect, it } from "bun:test";
+import { mkdir } from "node:fs/promises";
+import { $ } from "bun";
+import { Core } from "../core/backlog.ts";
 import { FileSystem } from "../file-system/operations.ts";
 import { parseTask } from "../markdown/parser.ts";
 import { serializeTask } from "../markdown/serializer.ts";
 import type { Task } from "../types/index.ts";
 import { getPriorityOptions, getPriorityRank, resolvePriorityValue } from "../utils/priority-config.ts";
-import { createUniqueTestDir, safeCleanup } from "./test-utils.ts";
+import { createUniqueTestDir, initializeTestProject, safeCleanup } from "./test-utils.ts";
 
 describe("Priority functionality", () => {
 	describe("priority configuration", () => {
@@ -211,6 +214,37 @@ This task has mixed case priority.`;
 				const parsed = parseTask(serialized);
 
 				expect(parsed.priority).toBe(priority);
+			}
+		});
+	});
+
+	describe("saving", () => {
+		it("writes the configured casing when an edit leaves priority untouched", async () => {
+			const testDir = createUniqueTestDir("priority-casing");
+			try {
+				await mkdir(testDir, { recursive: true });
+				await $`git init -b main`.cwd(testDir).quiet();
+				const core = new Core(testDir);
+				await initializeTestProject(core, "Priority Casing");
+				const config = await core.fs.loadConfig();
+				if (!config) throw new Error("config missing");
+				await core.fs.saveConfig({ ...config, priorities: ["High", "Medium", "Low"] });
+
+				const { task, filePath } = await core.createTaskFromInput({ title: "Keep my casing", priority: "High" });
+				if (!filePath) throw new Error("task was not written");
+				expect(await Bun.file(filePath).text()).toContain("priority: High\n");
+
+				await core.updateTaskFromInput(task.id, { addReferences: ["docs/spec.md"] });
+				const saved = await Bun.file(filePath).text();
+				expect(saved).toContain("priority: High\n");
+				expect(saved).not.toContain("priority: high");
+
+				// Reading stays case-insensitive.
+				expect(parseTask(saved).priority).toBe("high");
+				const reloaded = await core.fs.loadTask(task.id);
+				expect(reloaded?.priority).toBe("high");
+			} finally {
+				await safeCleanup(testDir);
 			}
 		});
 	});

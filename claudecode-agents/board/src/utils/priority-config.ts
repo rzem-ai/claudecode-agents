@@ -85,6 +85,22 @@ export function formatPriorityLabel(
 		.join(" ");
 }
 
+/**
+ * The spelling a priority is written to disk with: the configured label when the
+ * config lists the value, otherwise the value unchanged. Only explicitly configured
+ * priorities apply, so a board without a `priorities` list keeps its lowercase files.
+ */
+export function toPersistedPriority(
+	value: string | undefined,
+	config: Pick<BacklogConfig, "priorities"> | null | undefined,
+): string | undefined {
+	const normalized = normalizePriorityValue(value);
+	if (!normalized || !config?.priorities?.length) {
+		return value;
+	}
+	return getPriorityOptions(config).find((option) => option.value === normalized)?.label ?? value;
+}
+
 export function getPriorityRank(
 	value: string | null | undefined,
 	configOrPriorities?: Pick<BacklogConfig, "priorities"> | readonly string[] | null,
