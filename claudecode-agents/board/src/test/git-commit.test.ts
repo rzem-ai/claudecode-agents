@@ -91,6 +91,49 @@ describe("the binary commits its writes", () => {
 		expect(git("status", "--porcelain")).toContain(`?? ${BOARD_DIR}/${FOCUS_FILE}`);
 	});
 
+	// What /init produces: templates/board.gitignore ignores .focus. An exclude
+	// pathspec naming an ignored file makes `git add` exit 1, so the add must
+	// not carry one.
+	it("commits when the focus file exists and .boards/.gitignore ignores it", async () => {
+		writeFileSync(join(repo, BOARD_DIR, ".gitignore"), `${FOCUS_FILE}\n`);
+		git("add", "-A");
+		git("commit", "-q", "-m", "init");
+		const core = new Core(repo);
+		const { task } = await core.createTaskFromInput({ title: "First" });
+		writeFocus(repo, task.id);
+		await core.updateTaskFromInput(task.id, { title: "First, retitled" });
+		expect(git("log", "-1", "--format=%s")).toContain(task.id);
+		expect(git("show", "--stat", "--format=", "HEAD")).not.toContain(FOCUS_FILE);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("leaves nothing of .boards staged when the add fails after staging", async () => {
+		const core = new Core(repo);
+		const { task } = await core.createTaskFromInput({ title: "First" });
+		// A git on PATH whose add stages as usual and then exits 1, as the
+		// ignored-exclude failure did.
+		const bin = join(tmp, "bin");
+		mkdirSync(bin);
+		const realGit = Bun.which("git");
+		writeFileSync(
+			join(bin, "git"),
+			`#!/bin/sh\n"${realGit}" "$@"; s=$?\nfor a in "$@"; do [ "$a" = add ] && exit 1; done\nexit $s\n`,
+			{ mode: 0o755 },
+		);
+		const path = process.env.PATH;
+		const logged = spyOn(console, "error").mockImplementation(() => {});
+		process.env.PATH = `${bin}:${path}`;
+		try {
+			await core.updateTaskFromInput(task.id, { title: "First, retitled" });
+		} finally {
+			process.env.PATH = path;
+			logged.mockRestore();
+		}
+		expect(git("log", "-1", "--format=%s")).toBe(`board: ${task.id} created`);
+		expect(git("diff", "--cached", "--name-only", "--", BOARD_DIR)).toBe("");
+		expect(git("status", "--porcelain")).toContain(BOARD_DIR);
+	});
+
 	it("skips the commit when CLAUDECODE_AGENTS_BOARD_NO_COMMIT=1 and leaves the file", async () => {
 		process.env.CLAUDECODE_AGENTS_BOARD_NO_COMMIT = "1";
 		const core = new Core(repo);

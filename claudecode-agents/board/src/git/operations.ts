@@ -12,7 +12,8 @@ import { escapeRegExp } from "./branch-ids.ts";
 import { clearCommitNote, getCommitContext } from "./commit-context.ts";
 
 /** The focus file is never part of a board commit; see `src/core/focus.ts`. */
-const EXCLUDE_FOCUS = `:(exclude)${BOARD_DIR}/${FOCUS_FILE}`;
+const FOCUS_PATH = `${BOARD_DIR}/${FOCUS_FILE}`;
+const EXCLUDE_FOCUS = `:(exclude)${FOCUS_PATH}`;
 
 export interface GitBranchTip {
 	name: string;
@@ -36,7 +37,9 @@ export function formatCommitSubject(id: string | undefined, note: string, by?: s
 }
 
 function run(cwd: string, args: string[]): { code: number; out: string; err: string } {
-	const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+	// env passed explicitly: without it Bun spawns with the environment as it
+	// was at startup, not as it is now.
+	const p = Bun.spawnSync(["git", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe", env: process.env });
 	return { code: p.exitCode, out: p.stdout.toString().trim(), err: p.stderr.toString().trim() };
 }
 
@@ -74,24 +77,28 @@ export class GitOperations {
 	}
 
 	/**
-	 * The one commit routine. `git add -- .boards` then `git commit -- .boards`,
-	 * so the human's own staged work stays out of it, with `.boards/.focus`
-	 * excluded from every one of those pathspecs (add, diff --cached, commit,
-	 * reset): it is a per-checkout binding, never a thing to commit, and a
-	 * repository that has not run init has no `.gitignore` entry to protect it,
-	 * so the binary excludes it itself. Skipped, quietly, when the
-	 * env var says so, .boards is ignored, or the add produced no staged change
-	 * (decided from the index with `git diff --cached`, never by matching git's
-	 * prose, which varies with untracked files present); retried on a locked
-	 * index; logged and false on anything else. Every branch that leaves the
-	 * loop after a successful `add` first runs `git reset -- .boards`, so a
-	 * commit that cannot be made never leaves .boards sitting in the human's
-	 * index (a mid-merge commit is the case that matters: git refuses a partial
-	 * commit there, and the add must not survive that refusal). The file write
-	 * has already happened either way. The commit note is always cleared here,
-	 * win or lose, so a later write in the same process is never labelled with
-	 * this one's note; `by` is left alone, since a long-lived caller such as the
-	 * MCP server sets it once and every commit it makes should still carry it.
+	 * The one commit routine. `git add -- .boards`, then `git reset --
+	 * .boards/.focus`, then `git commit -- .boards`, so the human's own staged
+	 * work stays out of it. `.boards/.focus` is a per-checkout binding, never a
+	 * thing to commit. The add cannot exclude it by pathspec: where init's
+	 * `.boards/.gitignore` ignores it, git reads the exclude as naming an
+	 * ignored file and the add exits 1. So the add takes all of .boards (which
+	 * skips .focus when it is ignored) and the reset pulls .focus back out
+	 * where it is not, leaving its index entry at HEAD. diff --cached, commit
+	 * and reset accept the exclude on an ignored path, so they keep it.
+	 * Skipped, quietly, when the env var says so, .boards is ignored, or the
+	 * add produced no staged change (decided from the index with `git diff
+	 * --cached`, never by matching git's prose, which varies with untracked
+	 * files present); retried on a locked index; logged and false on anything
+	 * else. Every branch that leaves the loop after an add, failed or not,
+	 * first runs `git reset -- .boards`, so a commit that cannot be made never
+	 * leaves .boards sitting in the human's index (a failed add can still have
+	 * staged, and git refuses a partial commit mid-merge; neither may survive).
+	 * The file write has already happened either way. The commit note is
+	 * always cleared here, win or lose, so a later write in the same process
+	 * is never labelled with this one's note; `by` is left alone, since a
+	 * long-lived caller such as the MCP server sets it once and every commit it
+	 * makes should still carry it.
 	 */
 	async commitBoard(note: string, taskId?: string): Promise<boolean> {
 		try {
@@ -102,15 +109,17 @@ export class GitOperations {
 			const ctx = getCommitContext();
 			const subject = formatCommitSubject(taskId, ctx.note ?? note, ctx.by);
 			for (let attempt = 0; attempt < LOCK_RETRIES; attempt++) {
-				const add = run(this.projectRoot, ["add", "--", BOARD_DIR, EXCLUDE_FOCUS]);
+				const add = run(this.projectRoot, ["add", "--", BOARD_DIR]);
 				if (add.code !== 0 && /index\.lock/.test(add.err)) {
 					await sleep(LOCK_RETRY_MS);
 					continue;
 				}
 				if (add.code !== 0) {
+					run(this.projectRoot, ["reset", "-q", "--", BOARD_DIR, EXCLUDE_FOCUS]);
 					console.error(`board: commit skipped (git add): ${add.err}`);
 					return false;
 				}
+				run(this.projectRoot, ["reset", "-q", "--", FOCUS_PATH]);
 				// A no-op write (a status set to what it already was, the second
 				// commitFiles of a multi-step archive) stages nothing to commit.
 				// Decide that from the index, not from git's commit-failure prose.
