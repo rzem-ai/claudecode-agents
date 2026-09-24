@@ -256,6 +256,24 @@ run_hook board-subagent-stop.sh \
                 last_assistant_message:"I fixed it. Looks good to me."}')"
 [ "$RC" -eq 2 ]; check stop-prose-blocks "prose in place of a handoff is still refused" $?
 
+# A stop with no agent_type at all is not a fleet agent. It never had the
+# handoff skill preloaded and never agreed to the contract, so there is nothing
+# to validate and no re-emit will ever produce the four headings. Issue 8: this
+# case was exit 2 on every untyped spawn, 2562 log lines in nine days, burying
+# the real malformed handoffs 67 to 1. The log line has to name the case too.
+run_hook board-subagent-stop.sh \
+    "$(jq -nc '{session_id:"s14",agent_id:"a7",
+                stop_hook_active:false,agent_transcript_path:"/dev/null",
+                last_assistant_message:"I fixed it. Looks good to me."}')"
+[ "$RC" -eq 0 ]; check stop-untyped-stands-down "a stop with no agent_type owes no handoff and is let go" $?
+grep -q "untyped" "$LOG"; check stop-untyped-is-named "and the log says the type was missing, not that a role called agent failed" $?
+
+run_hook board-subagent-stop.sh \
+    "$(jq -nc '{session_id:"s15",agent_id:"a8",agent_type:"",
+                stop_hook_active:false,agent_transcript_path:"/dev/null",
+                last_assistant_message:"I fixed it. Looks good to me."}')"
+[ "$RC" -eq 0 ]; check stop-empty-type-stands-down "an empty agent_type is the same missing type" $?
+
 printf '\nSubagentStop: absent means ask the transcript\n'
 
 # The runtime builds the field as `xd(content).trim() || void 0`, so a final

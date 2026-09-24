@@ -63,12 +63,20 @@ extract_description() {
 
 # Everything after the closing --- of the frontmatter, with leading blank lines
 # trimmed. Trailing blank lines are trimmed too so the output is stable.
+#
+# The skill's "Canonical copy." paragraph is dropped. It tells the reader to
+# edit the skill and never the rule, which is right where it sits and backwards
+# once copied into the rule, where it contradicted the DO NOT EDIT header
+# eight lines above it (issue 9). The rule's own header already says which
+# file to edit. Any body paragraph opening with "Canonical copy." is skipped,
+# so the skill can keep the sentence and the rule never carries it.
 extract_body() {
     awk '
         NR == 1 && $0 == "---" { in_fm = 1; next }
         in_fm && $0 == "---"   { in_fm = 0; started = 1; next }
         started {
             if (!seen && $0 ~ /^[[:space:]]*$/) next
+            if (!seen && $0 ~ /^Canonical copy\./) next
             seen = 1
             print
         }
