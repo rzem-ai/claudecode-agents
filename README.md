@@ -98,7 +98,7 @@ What it does, and does not do:
 - Everything else in `home/` is copied, not symlinked, because Cowork ignores a symlinked `~/.claude/CLAUDE.md`. An existing symlink is replaced with a real file.
 - Anything it is about to overwrite is backed up first under `~/.local/state/claudecode-agents/backups/<timestamp>/` (override with `CLAUDECODE_AGENTS_BACKUP_DIR`).
 - It never touches `~/.claude/projects/`, sessions, history, todos, logs or `plugins/cache`. The guard is enforced in the script, not just documented.
-- Per-box differences go in `home/hosts/<short-hostname>/`, copied over the base tree after it. Known hosts are `slarti` and `eddie` (lab boxes, service-account 1Password auth) and `marvin` (the laptop); an unrecognised host installs as a workstation with a warning.
+- Per-box differences go in `home/hosts/<short-hostname>/`, copied over the base tree after it.
 - `CLAUDE_CONFIG_DIR` is respected if you keep Claude Code's config somewhere other than `~/.claude`.
 
 It is safe to re-run. Unchanged files are left alone and the summary at the end says what was created, updated and skipped.

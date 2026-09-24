@@ -6,8 +6,6 @@ This is the canonical design document for the claudecode-agents fleet: the roles
 
 The fleet is the set of role-shaped agents you delegate to from a Claude Code session - coding, spec writing, UI design, code review, refutation, technical writing, research - plus the plumbing that makes them one system: the models they run on, the words they share, where their memory lives, how they reach the board, what goes in a skill versus CLAUDE.md, which plugins earn a place, and how the whole lot stays identical across your machines and Claude Code on the web while still tracking new models.
 
-It is deliberately a different layer from the home lab. Angus and Mabel are Agent SDK agents with their own identities, memory substrate and A2A story. The fleet is dev tooling: role-named, without persistent identity, and disposable. Agents here keep memory, on the server (section 6); what they do not keep is a personality. The two layers share skills - the Agent SDK loads the same `skills/` directories when `settingSources` points at them - and that is the one deliberate overlap. The fleet does not grow personas; that is what the Sprites are for.
-
 ## 2. Principles
 
 Five rules that settle most arguments:
@@ -43,7 +41,7 @@ There is no industry standard, only four vocabularies that collide: Anthropic's 
 | Board | The tracked items as five columns: to do, doing, blocked, blocked by human, done | the task files grouped by status; `board export` or the web UI |
 | Human queue | The "blocked by human" column. The one thing the human monitors | the `Blocked by human` status |
 | Eval | A smoke test for one agent: three to five prompts, a rubric, a baseline score | `claude -p` via `evals/run.sh` |
-| Sprite | A home lab AI personal assistant with a persistent identity (Angus, Mabel). Out of scope here; the fleet has no Sprites | Agent SDK agent |
+| Sprite | A home lab AI personal assistant with a persistent identity. Out of scope here; the fleet has no Sprites | Agent SDK agent |
 
 Dropped on purpose: "subtask" (say sub-issue or task, whichever you actually mean), "epic" (a project or a milestone covers it), "sprint" (you are one person; a dated milestone covers time boxes), "story".
 
@@ -224,8 +222,6 @@ How each environment gets it:
 Every machine runs `scripts/install-home.sh`, which copies `home/` into `~/.claude` - today that is `settings.json`, merged rather than overwritten - renders the ten per-agent memory credentials with `op read` from 1Password (placeholders until the fleet vault exists), and builds the board binary into `~/.local/bin/board`. The board itself is created per repository by `/claudecode-agents:init`. `~/.claude/projects/`, sessions, history, debug and `plugins/cache` are never touched. The plugin is installed at user scope from the marketplace, so `claude plugin marketplace update rzem` plus the install script is the whole sync story, and there is no dotfiles manager.
 
 Every project repo carries `.claude/settings.json` with `extraKnownMarketplaces` pointing at `claudecode-agents`, `autoUpdate` off so a project moves to a new fleet version when you say so, and `agent` set to `claudecode-agents:lead`, so the session runs as the lead. It carries no `enabledPlugins`. Claude Code keeps one install record per enable point - user scope, and one per absolute path at project and local scope - and every agent worktree cut under `.claude/worktrees/` counts as a path, so a committed project-scope enable minted a record on every isolated spawn, each pinned to an old version, and the plugin cache never shrank (eight records at four versions for one project on 2026-09-24). The user-scope install is the only enable, so there is one record, one version, and `claude plugin update` is the whole update. The cost is Claude Code on the web, which reads only what the repo commits and so no longer picks the fleet up on folder trust; a project that needs the fleet there adds the enable back to its own settings and takes the records with it. The repo is public, so the clone, the marketplace add and background refreshes need no credentials.
-
-The home lab's Agent SDK agents point `settingSources` at the same plugin's skills directory. Angus and Mabel keep their own personas and memory; they just do not carry second copies of the shared writing skills.
 
 Versioning rule: if `plugin.json` has a `version`, clients keep the cached copy until the number changes. Bump it or nothing updates. Pin exact versions for anything with hooks.
 
