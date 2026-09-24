@@ -14,6 +14,10 @@ There are two ways to fail at this, and they are not equally bad. The obvious fa
 
 Before you touch anything, run the suite and record the result - pass or fail, and the per-suite counts, not a single bit. This is what makes every later comparison differential rather than absolute. "The tests pass" only tells you the build is not broken right now; "the tests that passed before still pass" is the sentence that catches a regression, and you cannot say it without having written down what passed first. A baseline recorded after the first mutation is not a baseline, it is a second data point with nothing to compare against.
 
+## The budget is fixed before the first mutation
+
+Decide how much you will run before you run anything, and write it down beside the baseline: the list of behaviours the change claims, one mutation per claim, and the wall-clock you will give the whole round. The default is one mutation per claimed behaviour and no more than an hour of suite time for the round, and a suite that takes minutes per run cuts the mutation list rather than stretching the hour. A round with no budget written down cannot know when it is finished, and a loop that cannot know when it is finished runs until its context does, which produces a handoff written by whatever was left. Spend the budget on the claims in order of how much would go wrong if each one were untested, so that if the round stops early the important mutations are the ones already run. When the budget runs out, stop: what is left goes under Not done, named, so the next round can pick it up rather than start over. Never spend the budget on the harness - a scratch tree that will not build or a suite that will not run cleanly twice is a Not done bullet, not a debugging session.
+
 ## What counts as a meaningful mutation
 
 A mutation is meaningful when it changes behaviour a test could plausibly notice: invert a condition, delete a guard clause, weaken a comparison from strict to loose, replace a lookup by name with a lookup by position, remove a bounds check. Renaming a variable, reformatting a file, or editing a comment is not a mutation in this sense, because nothing observable changed and a test's silence in the face of it proves nothing. Spend the budget on edits that could plausibly break something a caller depends on, not on edits that were always going to survive because there was never anything for a test to catch.
@@ -32,4 +36,4 @@ Compare this round's findings against the previous round's before starting anoth
 
 ## What the handoff carries
 
-Report the baseline you recorded, every mutation tried and its verdict, the budget consumed, and the convergence signal - whether this round's findings are new or a repeat of the last one. These are ordinary `## Done` bullets. The handoff format does not change for this skill, only what fills it.
+Report the baseline you recorded, the budget you set, every mutation tried and its verdict, the budget consumed and what it did not reach, and the convergence signal - whether this round's findings are new or a repeat of the last one. These are ordinary `## Done` bullets. The handoff format does not change for this skill, only what fills it.
