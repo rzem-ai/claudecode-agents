@@ -143,10 +143,10 @@ validate_specs() {
             ''|.*|*/*|*[!A-Za-z0-9._-]*)
                 warn "secret spec line with destination '$name' is not a plain filename"; bad=1 ;;
         esac
-        case "$ref" in
-            op://*/*/*) ;;
-            *) warn "secret spec line for '$name' does not hold an op://<vault>/<item>/<field> reference"; bad=1 ;;
-        esac
+        # Every component non-empty; a section between item and field is allowed.
+        if ! [[ $ref =~ ^op://[^/]+/[^/]+/[^/]+(/[^/]+)?$ ]]; then
+            warn "secret spec line for '$name' does not hold an op://<vault>/<item>/<field> reference"; bad=1
+        fi
     done <<EOF
 $(secret_specs)
 EOF
@@ -246,6 +246,12 @@ backup_file() {
     # $1 destination path, $2 relative path under ~/.claude
     local dest="$1" rel="$2" target
     target="$BACKUP_DIR/$rel"
+    # A host overlay can replace a file the base tree installed a moment ago.
+    # The first backup holds the machine's original; a second would overwrite
+    # it with the base tree's copy, so keep the first.
+    if [ -e "$target" ]; then
+        return 0
+    fi
     if [ "$DRY_RUN" -eq 1 ]; then
         info "would back up  $rel -> $target"
         return 0
