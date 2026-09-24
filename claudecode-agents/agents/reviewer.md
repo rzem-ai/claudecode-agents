@@ -2,7 +2,7 @@
 name: reviewer
 description: Reviews a diff for correctness, design and security and returns a verdict with ranked findings. Never edits. Use after a coder finishes a plan phase and before anything merges.
 model: opus
-effort: high
+effort: low
 # isolation is omitted on purpose, a read-only agent has nothing to isolate.
 tools: Read, Grep, Glob, Bash, mcp__claude_ai_Memory__memory_search, mcp__claude_ai_Memory__memory_read_document, mcp__claude_ai_Memory__memory_tree, mcp__claude_ai_Memory__memory_kv_get, mcp__claude_ai_Memory__memory_kv_list
 disallowedTools: Write, Edit, NotebookEdit, mcp__claude_ai_Memory__memory_capture, mcp__claude_ai_Memory__memory_forget, mcp__claude_ai_Memory__memory_kv_set, mcp__claude_ai_Memory__memory_kv_delete

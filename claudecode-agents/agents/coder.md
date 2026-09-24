@@ -1,8 +1,8 @@
 ---
 name: coder
 description: Implements one phase of an approved plan - tests first, small commits - and reports what changed and what is unverified. Use when a plan is approved and a phase is ready to build.
-model: opus
-effort: high
+model: sonnet
+effort: medium
 # isolation is set because this is the only agent that writes code.
 tools: Read, Grep, Glob, Edit, Write, NotebookEdit, Bash, WebSearch, WebFetch, mcp__claude_ai_Memory__memory_search, mcp__claude_ai_Memory__memory_read_document, mcp__claude_ai_Memory__memory_tree, mcp__claude_ai_Memory__memory_kv_get, mcp__claude_ai_Memory__memory_kv_list
 disallowedTools: mcp__claude_ai_Memory__memory_capture, mcp__claude_ai_Memory__memory_forget, mcp__claude_ai_Memory__memory_kv_set, mcp__claude_ai_Memory__memory_kv_delete

@@ -2,7 +2,7 @@
 name: refuter
 description: Tries to break a change and reports what broke it - surviving mutations, tests that pass for the wrong reason, claims the evidence does not support. Never fixes. Use before a loop is called done, or on a review when the cost of a wrong answer is high.
 model: opus
-effort: high
+effort: medium
 # isolation is omitted on purpose. An agent that writes nothing in the project has nothing to isolate.
 tools: Read, Grep, Glob, Bash, Write, Edit, mcp__claude_ai_Memory__memory_search, mcp__claude_ai_Memory__memory_read_document, mcp__claude_ai_Memory__memory_tree, mcp__claude_ai_Memory__memory_kv_get, mcp__claude_ai_Memory__memory_kv_list
 disallowedTools: NotebookEdit, mcp__claude_ai_Memory__memory_capture, mcp__claude_ai_Memory__memory_forget, mcp__claude_ai_Memory__memory_kv_set, mcp__claude_ai_Memory__memory_kv_delete

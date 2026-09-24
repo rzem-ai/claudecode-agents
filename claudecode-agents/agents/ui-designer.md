@@ -1,7 +1,7 @@
 ---
 name: ui-designer
 description: Turns an approved spec into screens, flows and self-contained HTML prototypes, arguing for one direction and showing two alternatives. Use after a spec is approved and before a coder builds anything.
-model: opus
+model: sonnet
 effort: high
 # isolation is omitted on purpose. throwaway prototypes are not a working tree.
 tools: Read, Write, Bash, WebSearch, mcp__claude_ai_Memory__memory_search, mcp__claude_ai_Memory__memory_read_document, mcp__claude_ai_Memory__memory_tree, mcp__claude_ai_Memory__memory_kv_get, mcp__claude_ai_Memory__memory_kv_list

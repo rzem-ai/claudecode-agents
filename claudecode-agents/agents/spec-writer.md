@@ -2,7 +2,7 @@
 name: spec-writer
 description: Interviews the human about a brain dump or a board item and drafts a spec - problem, non-goals, acceptance criteria, open questions - for them to edit. Use before any planning starts on an issue.
 model: opus
-effort: xhigh
+effort: medium
 # isolation is omitted on purpose, a docs-only agent has nothing to isolate.
 tools: Read, Grep, Glob, Write, WebSearch, mcp__plugin_claudecode-agents_board__task_view, mcp__plugin_claudecode-agents_board__task_list, mcp__plugin_claudecode-agents_board__task_search, mcp__plugin_claudecode-agents_board__milestone_list, mcp__plugin_claudecode-agents_board__document_view, mcp__plugin_claudecode-agents_board__document_list, mcp__plugin_claudecode-agents_board__document_search, mcp__claude_ai_Memory__memory_search, mcp__claude_ai_Memory__memory_read_document, mcp__claude_ai_Memory__memory_tree, mcp__claude_ai_Memory__memory_kv_get, mcp__claude_ai_Memory__memory_kv_list
 disallowedTools: Edit, NotebookEdit, mcp__plugin_claudecode-agents_board__task_create, mcp__plugin_claudecode-agents_board__task_edit, mcp__plugin_claudecode-agents_board__task_archive, mcp__plugin_claudecode-agents_board__task_complete, mcp__plugin_claudecode-agents_board__milestone_add, mcp__plugin_claudecode-agents_board__milestone_rename, mcp__plugin_claudecode-agents_board__milestone_remove, mcp__plugin_claudecode-agents_board__milestone_archive, mcp__plugin_claudecode-agents_board__document_create, mcp__plugin_claudecode-agents_board__document_update, mcp__plugin_claudecode-agents_board__definition_of_done_defaults_upsert, mcp__claude_ai_Memory__memory_capture, mcp__claude_ai_Memory__memory_forget, mcp__claude_ai_Memory__memory_kv_set, mcp__claude_ai_Memory__memory_kv_delete
