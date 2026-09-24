@@ -54,7 +54,7 @@ JUDGE_MODEL="${EVAL_JUDGE_MODEL:-sonnet}"
 TIMEOUT_SECS="${EVAL_TIMEOUT:-900}"
 OUTPUT_FORMAT="${EVAL_OUTPUT_FORMAT:-auto}"
 
-ALL_AGENTS="lead scout spec-writer coder reviewer ui-designer tech-writer researcher fleet-steward refuter"
+ALL_AGENTS="lead scout spec-writer coder scripter reviewer ui-designer tech-writer researcher fleet-steward refuter"
 
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 OUT_ROOT="$EVAL_ROOT/results/$STAMP"
@@ -447,7 +447,7 @@ say "  agents   $AGENTS"
 for agent in $AGENTS; do
     case " $ALL_AGENTS " in
         *" $agent "*) ;;
-        *) die "'$agent' is not one of the ten: $ALL_AGENTS" ;;
+        *) die "'$agent' is not one of the eleven: $ALL_AGENTS" ;;
     esac
 
     prompts=$(prompt_files "$agent")

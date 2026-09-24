@@ -1,0 +1,8 @@
+{
+  "agent": "scripter",
+  "score": null,
+  "gates": null,
+  "recorded": null,
+  "commit": null,
+  "note": "Unset until the first run. Record it with evals/run.sh scripter --update-baseline once a run looks representative, and never by hand."
+}

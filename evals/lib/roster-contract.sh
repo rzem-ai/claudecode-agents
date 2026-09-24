@@ -23,6 +23,7 @@ REPO_ROOT=$(cd "$LIB_DIR/../.." && pwd)
 AGENT_DIR="$REPO_ROOT/claudecode-agents/agents"
 HOOKS_JSON="$REPO_ROOT/claudecode-agents/hooks/hooks.json"
 RUN_SH="$REPO_ROOT/evals/run.sh"
+DESIGN_MD="$REPO_ROOT/docs/fleet-design.md"
 
 PASSED=0
 FAILED=0
@@ -109,6 +110,25 @@ for body in "$AGENT_DIR"/*.md; do
         *) false ;;
     esac
     check "$agent-runner" "is in the eval runner's ALL_AGENTS" $?
+
+    # The design doc's roster table is what the lead routes by, and it drifted
+    # silently once: the 24 September 2026 realignment moved five agents' model
+    # or effort in frontmatter and left the table describing a fleet that no
+    # longer existed. Column 4 is Model, column 5 is Effort; a body with no
+    # effort line is n/a in the table.
+    row=$(grep "^| \`$agent\` |" "$DESIGN_MD" | head -1)
+    [ -n "$row" ]
+    check "$agent-design-row" "has a row in the design doc's roster" $? "no row in docs/fleet-design.md"
+    if [ -n "$row" ]; then
+        row_model=$(printf '%s' "$row" | awk -F'|' '{gsub(/[ `]/,"",$4); print $4}')
+        row_effort=$(printf '%s' "$row" | awk -F'|' '{gsub(/ /,"",$5); print $5}')
+        fm_model=$(sed -n 's/^model: *//p' "$body" | head -1)
+        fm_effort=$(sed -n 's/^effort: *//p' "$body" | head -1)
+        [ "$row_model" = "$fm_model" ]
+        check "$agent-design-model" "the roster's model matches frontmatter" $? "roster $row_model, frontmatter $fm_model"
+        [ "$row_effort" = "${fm_effort:-n/a}" ]
+        check "$agent-design-effort" "the roster's effort matches frontmatter" $? "roster $row_effort, frontmatter ${fm_effort:-none}"
+    fi
 done
 
 printf '\n%s passed, %s failed\n' "$PASSED" "$FAILED"
@@ -116,4 +136,4 @@ if [ "$FAILED" -ne 0 ]; then
     printf 'The roster disagrees with itself: an agent exists that some part of the fleet does not know about.\n'
     exit 1
 fi
-printf 'Every agent body, the matcher, the eval runner and the eval directories agree.\n'
+printf 'Every agent body, the matcher, the eval runner, the eval directories and the design doc roster agree.\n'
