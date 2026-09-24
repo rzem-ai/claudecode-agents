@@ -2,6 +2,7 @@
 name: lead
 description: Plans, routes and gates the fleet. Writes the plan, picks which agent gets which job, holds the escalation policy, and merges the handoffs that come back. Set via `agent` in project settings, not spawned.
 model: opus
+effort: high
 # effort, memory and isolation are omitted on purpose. The roster says n/a for
 # effort and isolation, per-agent memory lives on the memory server, and
 # `tools` is omitted because the roster says "full session" - this agent is the
