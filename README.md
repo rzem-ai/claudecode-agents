@@ -1,6 +1,6 @@
 # claudecode-agents
 
-A personal Claude Code subagent fleet: ten role-shaped agents delegated to from a Claude Code session, the skills they share, the hooks that keep the board honest, the board itself, and the evals that catch a regression before a model release does. The claudecode-agents repo is a Claude Code plugin marketplace with one plugin, and it is the single source of truth - every machine and cloud session that runs the fleet gets it from here.
+A personal Claude Code subagent fleet: eleven role-shaped agents delegated to from a Claude Code session, the skills they share, the hooks that keep the board honest, the board itself, and the evals that catch a regression before a model release does. The claudecode-agents repo is a Claude Code plugin marketplace with one plugin, and it is the single source of truth - every machine and cloud session that runs the fleet gets it from here.
 
 The agents are roles, not personas: disposable by design, with fresh context on every spawn and their memory on a server rather than in their heads. The fleet also maintains itself: a `fleet-steward` agent watches model releases and files PRs against the claudecode-agents repo.
 
@@ -12,6 +12,7 @@ The agents are roles, not personas: disposable by design, with fresh context on 
 | `scout` | Cheap read-only reconnaissance: where is X, how does Y work. Locations and excerpts, never opinions |
 | `spec-writer` | Turns a brain dump or a board item into a spec, interviewing first |
 | `coder` | Implements one approved plan phase, tests first, in its own git worktree |
+| `scripter` | Coder's cheaper sibling for small scripting and tooling phases. Same worktree guard, smaller model |
 | `reviewer` | Reviews a diff for correctness, design and security. Reports, never edits |
 | `refuter` | Tries to break what was just built and reports what broke it. Never fixes |
 | `ui-designer` | Screens, flows and HTML prototypes from a spec |
@@ -28,6 +29,8 @@ Each body in [`claudecode-agents/agents/`](claudecode-agents/agents/) carries it
 **Hooks write the board; agents never do.** `SubagentStart` moves a board item to Doing, `SubagentStop` writes Blocked or Blocked by human (a `Blocker:` line in the handoff is what lands in the human queue), and `TaskCompleted` gates on tests before writing Done. A fourth hook, `enforce-agent-scope.sh`, denies at `PreToolUse` the tool calls each agent's own invariants forbid - the per-agent boundary that session-scoped permissions cannot express.
 
 **Workflows chain the roles.** `spec-to-plan`, `review-round` and `deep-research` in [`claudecode-agents/workflows/`](claudecode-agents/workflows/) run the multi-agent shapes deterministically instead of hoping the model sequences them.
+
+**Commands are the human's hands.** `/claudecode-agents:init` sets a project up, `kickoff` preflights it and starts the first spec, `work` focuses the checkout on one board item so the hooks move that item, `board` opens the board's web UI for this session, and `prune-worktrees` removes agent worktrees git can show were merged. They live in [`claudecode-agents/commands/`](claudecode-agents/commands/).
 
 **Everything is evalled.** Each agent has a smoke eval under [`evals/`](evals/) run with `claude -p`, and `evals/lib/check-all.sh` runs every deterministic check - hook contracts, roster consistency, workflow logic - with no model, no network and no board.
 
@@ -70,9 +73,9 @@ The template carries two keys: `extraKnownMarketplaces` (the `rzem` marketplace,
 
 What this gives up: Claude Code on the web has no machine-level install, and it reads only what the repo commits, so a cloud session no longer picks the fleet up on folder trust. A project that needs the fleet on the web adds `"enabledPlugins": {"claudecode-agents@rzem": true}` to its committed `.claude/settings.json` and accepts the per-path records that come with it on every developer machine. That is a per-project choice, and the template does not make it for you.
 
-**Verify.** `claude plugin list` shows `claudecode-agents@rzem` as enabled. Inside a session, `/agents` lists the ten fleet agents under the plugin. If the plugin installed but the agents are missing, the marketplace cache is stale - see *Staying current* below.
+**Verify.** `claude plugin list` shows `claudecode-agents@rzem` as enabled. Inside a session, `/agents` lists the eleven fleet agents under the plugin. If the plugin installed but the agents are missing, the marketplace cache is stale - see *Staying current* below.
 
-**The command route.** With the plugin installed (either route above), `/claudecode-agents:init` inside a session does the whole per-project setup in one pass: it merges the three settings keys, copies the CLAUDE.md skeleton and the glossary rule into the project, creates `docs/specs/` and `docs/plans/`, then reads the repo and interviews you to fill every `<FILL: ...>` marker. Re-running it is safe - it skips what already exists and only offers to fill markers still present.
+**The command route.** With the plugin installed, `/claudecode-agents:init` inside a session does the whole per-project setup in one pass: it merges the three settings keys, copies the CLAUDE.md skeleton and the glossary rule into the project, creates `docs/specs/` and `docs/plans/`, then reads the repo and interviews you to fill every `<FILL: ...>` marker. Re-running it is safe - it skips what already exists and only offers to fill markers still present.
 
 Nothing init writes is live until the next session - settings, `CLAUDE.md` and the plugin itself all load at startup - so init ends by telling you to restart, trust the folder, and run `/claudecode-agents:kickoff`. Kickoff preflights the install (agents present, lead in charge, no markers left, skeleton and work directories in place), then checks the board when the binary answers - `.boards/config.yml` here, its five statuses, the outcome labels, the `.gitignore` - and ends by stating the conventions: root, the `BD` prefix, status names, labels, and the item-ref binding. It cannot tell whether the binary on this machine is current, and says so. On a green preflight it takes the idea you typed after it - or asks for one - and starts the spec pipeline on it. On a red preflight it lists the fixes and stops; declining the board is never red.
 
@@ -102,7 +105,7 @@ It is safe to re-run. Unchanged files are left alone and the summary at the end 
 
 ### 3. Secrets and the board
 
-The board needs no secret at all. It is a directory of markdown files at `.boards/` in the repository's own main checkout, created by `/init` and committed by the plugin's own `board` binary after every write, which the installer builds into `~/.local/bin/board`. The hooks make no network call and read no token; without the binary they log a `board shim missing` or a `board <cmd> failed` line and leave the board alone, and the agents themselves work fine, so a machine that has never built it is a working install.
+The board needs no secret at all. It is a directory of markdown files at `.boards/` in the repository's own main checkout, created by `/claudecode-agents:init` and committed by the plugin's own `board` binary after every write, which the installer builds into `~/.local/bin/board`. The hooks make no network call and read no token; without the binary they log a `board shim missing` or a `board <cmd> failed` line and leave the board alone, and the agents themselves work fine, so a machine that has never built it is a working install.
 
 A clone without the plugin has the `.boards/` files and no hooks to move them - a readable board nobody moves. That is acceptable.
 
@@ -136,7 +139,7 @@ The project template sets `autoUpdate: false` deliberately, so a project moves t
 
 ```bash
 bash evals/lib/check-all.sh    # every deterministic check: hook contracts, roster, workflow logic. No model, no network, no board
-evals/run.sh --list            # the ten smoke evals and each agent's baseline
+evals/run.sh --list            # the eleven smoke evals and each agent's baseline
 evals/run.sh scout             # one agent's eval, model in the loop, via claude -p
 ```
 
@@ -154,16 +157,25 @@ Put the GitHub marketplace back with `claude plugin marketplace add rzem-ai/clau
 
 ```
 .claude-plugin/marketplace.json   the marketplace (name: rzem), one plugin in it
-claudecode-agents/                    the plugin: agents/, skills/, hooks/, workflows/, commands/, board/, templates/
+.github/workflows/checks.yml      CI: the deterministic suite on every push and pull request
+claudecode-agents/                the plugin: agents/, skills/, hooks/, workflows/, commands/, board/, templates/
+claudecode-agents/board/          the board binary, a pinned fork of Backlog.md; its LICENSE and NOTICE.md travel with it
 evals/                            one smoke eval per agent, plus lib/ with the deterministic suite
 docs/fleet-design.md              the design: what the fleet is and why, in twelve sections
 docs/agent-contract.md            the shape every agent body conforms to
 docs/limits.md                    what the fleet deliberately does not enforce or cover, and why
+docs/plans/                       plans for work on the claudecode-agents repo itself
 docs/runs/                        the run-article convention; the articles themselves live in project repos
 home/                             user-scope files the install script places
-scripts/                          install-home.sh, gen-glossary-rule.sh, merge-settings.py
+scripts/                          install-home.sh, gen-glossary-rule.sh, merge-settings.py, migrate-memory-board.sh
+AGENTS.md                         how to work on the claudecode-agents repo, for any coding agent
+LICENSE                           MIT
 ```
 
 ## Where things are decided
 
-The design, [`docs/fleet-design.md`](docs/fleet-design.md), is the canonical document - "design section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against. [`docs/limits.md`](docs/limits.md) is what the fleet deliberately does not enforce or cover, with the reason, so a gap is not mistaken for an oversight.
+The design, [`docs/fleet-design.md`](docs/fleet-design.md), is the canonical document - "design section N" anywhere in the claudecode-agents repo means that file. [`docs/agent-contract.md`](docs/agent-contract.md) is what the migration checklist checks agent bodies against. [`docs/limits.md`](docs/limits.md) is what the fleet deliberately does not enforce or cover, with the reason, so a gap is not mistaken for an oversight. [`AGENTS.md`](AGENTS.md) is the working agreement for changing the claudecode-agents repo: the checks to run, the release rule and the writing conventions.
+
+## Licence
+
+MIT, see [`LICENSE`](LICENSE). The board binary under `claudecode-agents/board/` is a pinned fork of [Backlog.md](https://github.com/MrLesk/Backlog.md), also MIT; its own `LICENSE` and `NOTICE.md` record the pin and what was kept.
