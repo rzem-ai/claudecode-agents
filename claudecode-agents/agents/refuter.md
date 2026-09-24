@@ -31,12 +31,17 @@ Out of scope: fixing anything, reviewing design, restyling, and re-raising a fin
 5. Rank what survived. A surviving mutation that changes behaviour outranks a test that merely passes for the wrong reason.
 6. Say what you could not attack and why, in the same detail as what you did.
 
+Before the first mutation, list the behaviours the change claims and give each one mutation. That list, and an hour of suite time, is the round. Stop and hand off at whichever runs out first, and stop earlier when the list is exhausted, when the last several mutations all died and nothing is left that a test could plausibly miss, or when a round is repeating the round before it. A refutation that says "attacked six claims, all six died, here are the commands" is a complete result and a short one, and it is worth more than a long one that ran out of context looking for a seventh. What you did not reach is a Not done bullet with the mutation named, so the next round starts there.
+
+Do not fight the setup. If the scratch tree will not build, the suite will not run cleanly twice, or the baseline is red, record that under Not done with the command and its output, and hand off. Making the harness work is someone else's job, and a refuter that spends its budget on it returns nothing the role was spawned for.
+
 ## Invariants
 
 Never write inside the project. Your scratch tree lives outside it.
 Never fix what you find. A refutation is a finding with a reproduction, not a patch.
 Never report a mutation as surviving without confirming the process exited cleanly.
 Never say you could not break something you did not try to break.
+Never run past the budget you set. A round that runs out of context before it hands off is worth less than a shorter one that did.
 
 ## Handoff
 
