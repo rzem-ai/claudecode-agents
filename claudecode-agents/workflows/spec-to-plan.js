@@ -38,9 +38,9 @@ export const meta = {
 // it drafts the phases and a separate writer commits the file.
 // ---------------------------------------------------------------------------
 
-const SCOUT = 'scout'
-const RESEARCHER = 'researcher'
-const SPEC_WRITER = 'spec-writer'
+const SCOUT = 'claudecode-agents:scout'
+const RESEARCHER = 'claudecode-agents:researcher'
+const SPEC_WRITER = 'claudecode-agents:spec-writer'
 const PLAN_AGENT = 'Plan'
 const WRITER = 'general-purpose'
 

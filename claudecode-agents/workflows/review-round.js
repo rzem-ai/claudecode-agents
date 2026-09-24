@@ -85,10 +85,10 @@ export const meta = {
 // code by default is a run that surprises somebody.
 // ---------------------------------------------------------------------------
 
-const SCOUT = 'scout'
-const REVIEWER = 'reviewer'
-const CODER = 'coder'
-const REFUTER = 'refuter'
+const SCOUT = 'claudecode-agents:scout'
+const REVIEWER = 'claudecode-agents:reviewer'
+const CODER = 'claudecode-agents:coder'
+const REFUTER = 'claudecode-agents:refuter'
 
 const SENSITIVE =
   /(auth|authz|authn|login|logout|session|token|jwt|oauth|saml|oidc|password|passkey|credential|secret|crypto|cipher|hash|permission|entitlement|\.env|keychain|vault)/i

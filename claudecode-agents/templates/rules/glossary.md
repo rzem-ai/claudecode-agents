@@ -11,8 +11,6 @@ Generated from `claudecode-agents/skills/glossary/SKILL.md` by `scripts/gen-glos
 
 This rule carries no `paths:` key, so it loads on every turn in any project that installs it.
 
-Canonical copy. `claudecode-agents/templates/rules/glossary.md` is generated from this file - edit here, never there.
-
 | Term | Meaning | Maps to |
 |---|---|---|
 | Initiative | A goal spanning several projects (e.g. "agent platform v5") | none; a shared milestone or a document |

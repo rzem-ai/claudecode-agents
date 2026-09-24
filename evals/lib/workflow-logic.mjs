@@ -199,13 +199,13 @@ const PIN = {
     (prompt, opts) => {
       if (opts.label === 'pin refs') return PIN
       if (/git diff --stat/.test(prompt)) return { files: ['src/a.ts'], added: 10, removed: 2, commits: ['c'] }
-      if (opts.agentType === 'reviewer')
+      if (opts.agentType === 'claudecode-agents:reviewer')
         return { verdict: 'changes requested', summary: 's', findings: [{ blocking: true, file: 'src/a.ts', what: 'bug' }] }
       return { findings: [] }
     },
   )
   check('fix-stops-the-run', 'a blocking verdict stops for a fix handoff', result.stopped === 'fix handoff required', result.stopped)
-  const spawnedCoder = calls.some((c) => c.opts.agentType === 'coder')
+  const spawnedCoder = calls.some((c) => c.opts.agentType === 'claudecode-agents:coder')
   check('no-coder-spawned', 'and never commissions coder from inside the review', spawnedCoder === false, spawnedCoder)
   check(
     'fix-request-recorded',
@@ -221,7 +221,7 @@ const PIN = {
   const { result } = await runWorkflow('review-round.js', { range: 'main...clean' }, (prompt, opts) => {
     if (opts.label === 'pin refs') return PIN
     if (/git diff --stat/.test(prompt)) return { files: ['src/a.ts'], added: 1, removed: 0, commits: ['c'] }
-    if (opts.agentType === 'reviewer') return { verdict: 'approve', summary: 'fine', findings: [] }
+    if (opts.agentType === 'claudecode-agents:reviewer') return { verdict: 'approve', summary: 'fine', findings: [] }
     return { findings: [] }
   })
   check('clean-run-passes', 'a clean verdict still reports clean', result.stopped === 'clean', result.stopped)
@@ -258,7 +258,7 @@ function responder(over = {}) {
     state.prompts.push({ prompt, label, type, opts })
     for (const [k, v] of Object.entries(over)) {
       if (k === 'match') continue
-      if (label === k || (k === 'coder' && type === 'coder') || (k === 'reviewer' && type === 'reviewer')) {
+      if (label === k || (k === 'coder' && type === 'claudecode-agents:coder') || (k === 'reviewer' && type === 'claudecode-agents:reviewer')) {
         return typeof v === 'function' ? v(prompt, opts, state) : v
       }
     }
@@ -272,18 +272,18 @@ function responder(over = {}) {
     }
     if (/git diff --stat/.test(prompt)) return { files: ['src/a.ts'], added: 10, removed: 2, commits: ['c'] }
     if (label === 'plan gate') return { planExists: true, planApproved: true, evidence: 'Status: approved' }
-    if (type === 'reviewer') {
+    if (type === 'claudecode-agents:reviewer') {
       state.round += 1
       return state.round === 1
         ? { verdict: 'request changes', summary: 's', findings: [{ blocking: true, file: 'src/a.ts', what: 'bug', why: 'w' }] }
         : { verdict: 'approve', summary: 'fixed', findings: [] }
     }
-    if (type === 'coder') return handoff({ done: HINTS.concat('fixed src/a.ts') })
+    if (type === 'claudecode-agents:coder') return handoff({ done: HINTS.concat('fixed src/a.ts') })
     // Under fix: true the refutation stage is mandatory, so every FIX-based
     // case in this suite that says nothing about it still needs an answer -
     // one where nothing survived, since these cases are about the fix loop,
     // not about refutation.
-    if (type === 'refuter') return handoff({ done: ['ran 12 mutations, all killed'] })
+    if (type === 'claudecode-agents:refuter') return handoff({ done: ['ran 12 mutations, all killed'] })
     if (label === 'verify fix') {
       return {
         headCommit: 'bbb2222',
@@ -314,7 +314,7 @@ const FIX = { range: 'main...feature/refresh', issue: 'x', fix: true, maxRounds:
   const r = responder()
   const { result, calls } = await runWorkflow('review-round.js', { range: 'main...feature/refresh', issue: 'x' }, r)
   check('fix-is-opt-in', 'without fix:true a blocking verdict still just hands off', result.stopped === 'fix handoff required', result.stopped)
-  check('opt-in-spawns-no-coder', 'and commissions nobody', calls.every((c) => c.opts.agentType !== 'coder'), calls.map((c) => c.opts.agentType))
+  check('opt-in-spawns-no-coder', 'and commissions nobody', calls.every((c) => c.opts.agentType !== 'claudecode-agents:coder'), calls.map((c) => c.opts.agentType))
 }
 
 // --- the transport, which is the whole reason this design exists -------------
@@ -322,7 +322,7 @@ const FIX = { range: 'main...feature/refresh', issue: 'x', fix: true, maxRounds:
 {
   const r = responder()
   const { calls } = await runWorkflow('review-round.js', FIX, r)
-  const coder = calls.find((c) => c.opts.agentType === 'coder')
+  const coder = calls.find((c) => c.opts.agentType === 'claudecode-agents:coder')
   check('coder-spawned', 'with fix:true the fix run happens', Boolean(coder), false)
   // A schema on a fleet agent deletes last_assistant_message, and with it the
   // handoff gate, the "## Done" card comment, and the only working route to the
@@ -340,7 +340,7 @@ const FIX = { range: 'main...feature/refresh', issue: 'x', fix: true, maxRounds:
 {
   const r = responder()
   const { calls } = await runWorkflow('review-round.js', FIX, r)
-  const verdict = calls.find((c) => c.opts.agentType === 'reviewer')
+  const verdict = calls.find((c) => c.opts.agentType === 'claudecode-agents:reviewer')
   check('range-pinned-not-symbolic', 'the reviewed range is pinned to SHAs, so a moving branch cannot change it', verdict && /ba5e0000/.test(verdict.prompt) && /facef00d/.test(verdict.prompt), verdict && verdict.prompt.slice(0, 120))
 }
 
@@ -348,7 +348,7 @@ const FIX = { range: 'main...feature/refresh', issue: 'x', fix: true, maxRounds:
   const r = responder({ 'pin refs': { resolved: [{ role: 'base', ref: 'main', sha: 'ba5e0000' }, { role: 'head', ref: 'HEAD', sha: '', error: 'unknown revision' }], worktrees: [], commandsRun: [], couldNotRun: [] } })
   const { result, calls } = await runWorkflow('review-round.js', FIX, r)
   check('pin-failure-stops-early', 'an unresolvable head stops before anything is reviewed', /does not resolve/.test(result.stopped || ''), result.stopped)
-  check('pin-failure-spawns-nothing', 'and spawns no reviewer', calls.every((c) => c.opts.agentType !== 'reviewer'), calls.length)
+  check('pin-failure-spawns-nothing', 'and spawns no reviewer', calls.every((c) => c.opts.agentType !== 'claudecode-agents:reviewer'), calls.length)
 }
 
 // --- a failed scope pass is not an empty diff -------------------------------
@@ -474,7 +474,7 @@ for (const [name, patch] of [
   })
   const { result, calls } = await runWorkflow('review-round.js', FIX, r)
   check('main-worktree-with-a-real-commit-stops', 'a real commit in the main checkout is still refused', result.stopped === 'fix not isolated', result.stopped)
-  check('main-worktree-not-re-reviewed', 'and no second round reviews a commit on the shared branch', calls.filter((c) => c.opts.agentType === 'reviewer').length === 1, calls.filter((c) => c.opts.agentType === 'reviewer').length)
+  check('main-worktree-not-re-reviewed', 'and no second round reviews a commit on the shared branch', calls.filter((c) => c.opts.agentType === 'claudecode-agents:reviewer').length === 1, calls.filter((c) => c.opts.agentType === 'claudecode-agents:reviewer').length)
 }
 
 // isMain is optional in the verify schema, so a lane that simply omits it must
@@ -559,7 +559,7 @@ for (const reported of ['./src/a.ts', 'src/a.ts:88']) {
   const { result, calls } = await runWorkflow('review-round.js', { range: 'main...x', issue: 'x' }, (p, o, s) =>
     /git diff --stat/.test(p) ? { files: ['src/session-token.ts'], added: 3, removed: 1, commits: ['c'] } : r(p, o, s),
   )
-  const verdict = calls.find((c) => c.opts.agentType === 'reviewer')
+  const verdict = calls.find((c) => c.opts.agentType === 'claudecode-agents:reviewer')
   check('sensitive-paths-escalate', 'a sensitive path raises the verdict effort', verdict && verdict.opts.effort === 'max', verdict && verdict.opts.effort)
   check('sensitive-reported-honestly', 'and the run reports that it did, naming the file', result.sensitive === true && (result.sensitiveFiles || []).includes('src/session-token.ts'), [result.sensitive, result.sensitiveFiles])
 }
@@ -608,7 +608,7 @@ for (const reported of ['./src/a.ts', 'src/a.ts:88']) {
   check('fix-request-cleared', 'and the stale fix request is cleared once a fix is accepted', !result.fixRequest, result.fixRequest)
   check('fix-recorded', 'the accepted fix records the worktree and commit git found', result.fixes && result.fixes[0] && result.fixes[0].headCommit === 'bbb2222' && result.fixes[0].worktreePath === '/w/fix', result.fixes)
   // Round two must read the fixed code, not the original range.
-  const round2 = calls.filter((c) => c.opts.agentType === 'reviewer')[1]
+  const round2 = calls.filter((c) => c.opts.agentType === 'claudecode-agents:reviewer')[1]
   check('range-repointed', 'round two reviews the fix commit and not the original range', round2 && /bbb2222/.test(round2.prompt) && !/feature\/refresh/.test(round2.prompt), round2 && round2.prompt.slice(0, 160))
   const round2Mech = calls.filter((c) => !c.opts.agentType && c.opts.schema && /Round 2/.test(c.prompt))
   check('mech-lanes-follow-the-fix', 'and the mechanical lanes run in the fix worktree, not the original checkout', round2Mech.length > 0 && round2Mech.every((c) => /\/w\/fix/.test(c.prompt)), round2Mech.length)
@@ -664,7 +664,7 @@ for (const reported of ['./src/a.ts', 'src/a.ts:88']) {
 {
   const r = responder({ 'plan gate': { planExists: true, planApproved: false, evidence: 'status line reads draft' } })
   const { result, calls } = await runWorkflow('review-round.js', FIX, r)
-  check('no-plan-no-coder', 'an unapproved plan commissions nobody', calls.every((c) => c.opts.agentType !== 'coder'), calls.map((c) => c.opts.agentType))
+  check('no-plan-no-coder', 'an unapproved plan commissions nobody', calls.every((c) => c.opts.agentType !== 'claudecode-agents:coder'), calls.map((c) => c.opts.agentType))
   check('no-plan-stop-named', 'and stops for the plan, saying so', result.stopped === 'no approved plan' && /draft/.test(JSON.stringify(result.fixRequest || {})), [result.stopped, result.fixRequest])
 }
 
@@ -673,7 +673,7 @@ for (const reported of ['./src/a.ts', 'src/a.ts:88']) {
   // workflow branches on can be trusted to be a boolean.
   const r = responder({ 'plan gate': { planExists: true, planApproved: 'false', evidence: 'e' } })
   const { result, calls } = await runWorkflow('review-round.js', FIX, r)
-  check('string-false-does-not-approve', 'the string "false" is not an approval', calls.every((c) => c.opts.agentType !== 'coder') && result.stopped === 'no approved plan', result.stopped)
+  check('string-false-does-not-approve', 'the string "false" is not an approval', calls.every((c) => c.opts.agentType !== 'claudecode-agents:coder') && result.stopped === 'no approved plan', result.stopped)
 }
 
 {
@@ -708,7 +708,7 @@ for (const reported of ['./src/a.ts', 'src/a.ts:88']) {
   const r = responder({ reviewer: { verdict: 'request changes', summary: 's', findings: [{ blocking: true, file: 'src/a.ts', what: 'b', why: 'w' }] } })
   const { result, calls } = await runWorkflow('review-round.js', { range: 'main...x', issue: 'x', fix: true, maxRounds: 2 }, r)
   check('cap-not-approval', 'a run that hits the cap is not an approval', result.stopped === 'round cap' && !/approve/.test(result.verdict || ''), [result.stopped, result.verdict])
-  const coders = calls.filter((c) => c.opts.agentType === 'coder').length
+  const coders = calls.filter((c) => c.opts.agentType === 'claudecode-agents:coder').length
   check('cap-commissions-no-final-fix', 'and never commissions a fix it could not review', coders === 1, coders)
 }
 
@@ -968,7 +968,7 @@ console.log('\nreview-round: claims that were right, and now watched')
 // detect that; the ordering is what makes a compliant coder never do it.
 {
   const { calls } = await runWorkflow('review-round.js', FIX, responder())
-  const fix = calls.find((c) => c.opts.agentType === 'coder')
+  const fix = calls.find((c) => c.opts.agentType === 'claudecode-agents:coder')
   const p = fix ? fix.prompt : ''
   check('isolation-checked-before-anything-is-written', 'the fix prompt checks which checkout it is in before it writes', p.indexOf('rev-parse --git-dir') > -1 && p.indexOf('rev-parse --git-dir') < p.indexOf('git switch -c'), [p.indexOf('rev-parse --git-dir'), p.indexOf('git switch -c')])
   check('main-checkout-is-refused-not-reported', 'and says to write nothing at all if it is the main checkout', /Run no writing git command at all/.test(p), false)
@@ -980,14 +980,14 @@ console.log('\nreview-round: a round is clean when nobody could break it')
 // without being asked for it.
 {
   const { calls } = await runWorkflow('review-round.js', { range: 'main...x', issue: 'x' }, responder({ reviewer: { verdict: 'approve', summary: 'fine', findings: [] } }))
-  check('refuter-is-opt-in', 'an ordinary review does not spawn a refuter', calls.every((c) => c.opts.agentType !== 'refuter'), calls.map((c) => c.opts.agentType))
+  check('refuter-is-opt-in', 'an ordinary review does not spawn a refuter', calls.every((c) => c.opts.agentType !== 'claudecode-agents:refuter'), calls.map((c) => c.opts.agentType))
 }
 
 // Reachable outside a loop, which is how the role earns its place before
 // anything depends on it.
 {
   const { calls } = await runWorkflow('review-round.js', { range: 'main...x', issue: 'x', refute: true }, responder({ reviewer: { verdict: 'approve', summary: 'fine', findings: [] } }))
-  const r = calls.find((c) => c.opts.agentType === 'refuter')
+  const r = calls.find((c) => c.opts.agentType === 'claudecode-agents:refuter')
   check('refute-flag-spawns-one', 'refute: true spawns a refuter on an ordinary review', Boolean(r), false)
   check('refuter-carries-no-schema', 'and it carries no schema, so its handoff still reaches the gate', r && r.opts.schema === undefined, r && r.opts.schema)
 }
@@ -1042,6 +1042,26 @@ console.log('\nreview-round: a round is clean when nobody could break it')
     'Round 1 refutation': '   \n\t  ',
   }))
   check('blank-refuter-is-not-clean', 'a refuter that returned only whitespace is its own stop reason too', result.stopped === 'refutation returned nothing' && result.approved === false, [result.stopped, result.approved])
+}
+
+console.log('\nevery workflow: fleet agents are spawned by their plugin name')
+{
+  // Issue 10. Installed as a plugin, the fleet's agents are registered as
+  // `claudecode-agents:<name>`, and `agent({agentType: 'scout'})` fails on
+  // launch with "agent type 'scout' not found". The built-in Plan and
+  // general-purpose lanes carry no prefix, and a lane with no agentType is
+  // deliberate (see review-round's header). This reads the scripts' own
+  // constants rather than the recorded calls, so a workflow the harness never
+  // drives is held to it too.
+  const FLEET = ['lead', 'scout', 'spec-writer', 'coder', 'scripter', 'reviewer', 'ui-designer', 'tech-writer', 'researcher', 'fleet-steward', 'refuter']
+  for (const file of ['spec-to-plan.js', 'review-round.js', 'deep-research.js']) {
+    const src = readFileSync(join(WORKFLOWS, file), 'utf8')
+    const bare = []
+    for (const m of src.matchAll(/^const\s+[A-Z_]+\s*=\s*'([^']+)'/gm)) {
+      if (FLEET.includes(m[1])) bare.push(m[1])
+    }
+    check('prefixed-agent-types:' + file, 'names every fleet agent by its plugin name', bare.length === 0, bare)
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`)

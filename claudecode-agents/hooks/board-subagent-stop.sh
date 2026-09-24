@@ -279,6 +279,21 @@ agent_transcript="$(printf '%s' "$input" | jq -r '.agent_transcript_path // ""')
 # Do not describe failure transitions as verified until a real event shows one.
 status_raw="$(printf '%s' "$input" | jq -r '.status // .completion_reason // ""')"
 
+# No agent_type means this was never a fleet agent. The handoff is a fleet
+# convention preloaded into the eleven role bodies; a spawn that arrives here
+# without a type - a named teammate, a harness-driven synthetic, a runtime that
+# dropped the field - never had the skill and never agreed to the contract, so
+# there is nothing to validate and no exit 2 will ever make it produce the
+# four headings. The matcher in hooks.json should keep these out, and does not
+# always: 2562 untyped stops reached this gate in nine days (issue 8), each
+# logged as "handoff from agent is malformed", a sentence grammatical enough to
+# hide that the type was missing. Stand down here, and say why in words that
+# cannot be misread as a role called "agent".
+if [ -z "$agent_type" ]; then
+  board_log "$HOOK" "an untyped subagent (${agent_id:-no id}) stopped; no agent_type means no fleet role, no handoff contract, nothing to validate; leaving the column alone"
+  exit 0
+fi
+
 case "$(printf '%s' "$status_raw" | tr 'A-Z' 'a-z')" in
   success|succeeded|ok|completed) status=success ;;
   failure|failed|error)            status=failure ;;
@@ -303,23 +318,23 @@ elif [ -n "${CLAUDECODE_AGENTS_BOARD_PAGE_ID:-}" ] && page_id="$(normalise_page_
   board_log "$HOOK" "no state file for ${agent_id:-no id}; falling back to CLAUDECODE_AGENTS_BOARD_PAGE_ID"
 else
   page_id=""
-  board_log "$HOOK" "no board item bound to ${agent_type:-agent} ${agent_id:-no id}; the column will not change"
+  board_log "$HOOK" "no board item bound to ${agent_type:-an untyped subagent} ${agent_id:-no id}; the column will not change"
 fi
 
 # 1. A failed or cancelled run goes to Blocked, and that is the end of it. The
 #    handoff check deliberately does not run here: exit 2 would refuse to let a
 #    cancelled subagent stop, which is the opposite of what a cancellation means.
 if [ "$status" = "failure" ] || [ "$status" = "cancelled" ]; then
-  board_log "$HOOK" "${agent_type:-agent} finished with status $status"
+  board_log "$HOOK" "${agent_type:-an untyped subagent} finished with status $status"
   # The handoff is not validated on this path and may be absent or malformed,
   # which is allowed. Take what parses; fall back to the two things always known.
   notdone="$(extract_section 'Not done' "$message")"
   if [ -n "$notdone" ]; then
     comment="$(board_comment_text \
-      "Blocked. ${agent_type:-A subagent} finished with status $status. From \"## Not done\" in its handoff:" \
+      "Blocked. ${agent_type:-An untyped subagent} finished with status $status. From \"## Not done\" in its handoff:" \
       "$notdone")"
   else
-    comment="Blocked. ${agent_type:-A subagent} finished with status $status. Its handoff carried no readable \"## Not done\" detail, so the status is all this card can say."
+    comment="Blocked. ${agent_type:-An untyped subagent} finished with status $status. Its handoff carried no readable \"## Not done\" detail, so the status is all this card can say."
     board_log "$HOOK" "no readable \"## Not done\" in the handoff; commenting the agent type and status only"
   fi
   board_write "$HOOK" "$page_id" "$BOARD_COL_BLOCKED" "$comment"
@@ -358,7 +373,7 @@ if [ "$has_message" != yes ]; then
   transcript_block="$(transcript_final_block "$agent_transcript")" || transcript_block=""
   case "$(printf '%s' "$transcript_block" | jq -r '.t // ""' 2>/dev/null)" in
     structured)
-      board_log "$HOOK" "${agent_type:-agent} finished on a StructuredOutput call, so it was never asked for a handoff and there is nothing to validate; leaving the column alone"
+      board_log "$HOOK" "${agent_type:-an untyped subagent} finished on a StructuredOutput call, so it was never asked for a handoff and there is nothing to validate; leaving the column alone"
       exit 0
       ;;
     text)
@@ -366,10 +381,10 @@ if [ "$has_message" != yes ]; then
       # hold it to the same rules as any other - this is the empty-handoff case,
       # and it is the one the gate exists for.
       message="$(printf '%s' "$transcript_block" | jq -r '.v // ""')"
-      board_log "$HOOK" "${agent_type:-agent} sent no final message in the event, but its transcript ends in text; validating that as the handoff"
+      board_log "$HOOK" "${agent_type:-an untyped subagent} sent no final message in the event, but its transcript ends in text; validating that as the handoff"
       ;;
     *)
-      board_log "$HOOK" "${agent_type:-agent} sent no final message and its transcript could not be read, so why is unknown; letting the run stop rather than demanding a handoff that may never have been owed"
+      board_log "$HOOK" "${agent_type:-an untyped subagent} sent no final message and its transcript could not be read, so why is unknown; letting the run stop rather than demanding a handoff that may never have been owed"
       exit 0
       ;;
   esac
@@ -385,7 +400,7 @@ if ! validate_handoff "$message"; then
     printf 'each with at least one "- " item at column 0, and "- None" alone where a section is empty:\n\n'
     printf '## Done\n## Not done\n## Unverified\n## Decisions needed\n'
   } >&2
-  board_log "$HOOK" "handoff from ${agent_type:-agent} is malformed; exit 2 to make it re-emit"
+  board_log "$HOOK" "handoff from ${agent_type:-an untyped subagent} is malformed; exit 2 to make it re-emit"
   exit 2
 fi
 
@@ -394,9 +409,9 @@ blockers="$(extract_blockers "$message")"
 if [ -n "$blockers" ]; then
   count="$(printf '%s\n' "$blockers" | grep -c . || true)"
   comment="$(board_comment_text \
-    "Blocked by human. ${agent_type:-A subagent} raised ${count} blocker(s). From \"## Decisions needed\" in its handoff:" \
+    "Blocked by human. ${agent_type:-An untyped subagent} raised ${count} blocker(s). From \"## Decisions needed\" in its handoff:" \
     "$(printf '%s\n' "$blockers" | sed 's/^/- /')")"
-  board_log "$HOOK" "${count} blocker(s) from ${agent_type:-agent}; moving to \"$BOARD_COL_BLOCKED_HUMAN\""
+  board_log "$HOOK" "${count} blocker(s) from ${agent_type:-an untyped subagent}; moving to \"$BOARD_COL_BLOCKED_HUMAN\""
   board_write "$HOOK" "$page_id" "$BOARD_COL_BLOCKED_HUMAN" "$comment"
 else
   # No column moves here; TaskCompleted owns Done. The comment still goes on,
@@ -406,12 +421,12 @@ else
   if [ -n "$done_items" ]; then
     count="$(printf '%s\n' "$done_items" | grep -c . || true)"
     comment="$(board_comment_text \
-      "Done. ${agent_type:-A subagent} finished with no blockers. From \"## Done\" in its handoff:" \
+      "Done. ${agent_type:-An untyped subagent} finished with no blockers. From \"## Done\" in its handoff:" \
       "$done_items")"
-    board_log "$HOOK" "${agent_type:-agent} succeeded with no blockers; commenting ${count} \"## Done\" item(s), leaving the column alone for TaskCompleted"
+    board_log "$HOOK" "${agent_type:-an untyped subagent} succeeded with no blockers; commenting ${count} \"## Done\" item(s), leaving the column alone for TaskCompleted"
     board_comment "$HOOK" "$page_id" "$comment"
   else
-    board_log "$HOOK" "${agent_type:-agent} succeeded with no blockers and an empty \"## Done\"; nothing worth commenting, leaving the column alone for TaskCompleted"
+    board_log "$HOOK" "${agent_type:-an untyped subagent} succeeded with no blockers and an empty \"## Done\"; nothing worth commenting, leaving the column alone for TaskCompleted"
   fi
 fi
 

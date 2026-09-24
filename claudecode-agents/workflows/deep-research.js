@@ -32,8 +32,8 @@ export const meta = {
 //   /claudecode-agents:deep-research { "question": "...", "inCodebase": false, "rounds": 3 }
 // ---------------------------------------------------------------------------
 
-const RESEARCHER = 'researcher'
-const SCOUT = 'scout'
+const RESEARCHER = 'claudecode-agents:researcher'
+const SCOUT = 'claudecode-agents:scout'
 
 const input = typeof args === 'string' ? { question: args } : args || {}
 const question = input.question || input.q
