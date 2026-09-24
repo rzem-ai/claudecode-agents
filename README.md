@@ -47,9 +47,18 @@ The claudecode-agents repo is a Claude Code plugin marketplace named `rzem` with
 
 ### 1. Use the fleet in a project
 
-This is the whole per-project story, and it is what makes Claude Code on the web work too. Two routes end in the same place.
+The plugin is installed once per machine, at user scope. Each project then says only which marketplace it comes from and which agent runs the session.
 
-**The template route.** From a clone of the claudecode-agents repo, copy the settings template into the project you want the fleet in:
+**On the machine.** Add the marketplace and install the plugin at user scope:
+
+```bash
+claude plugin marketplace add rzem-ai/claudecode-agents
+claude plugin install claudecode-agents@rzem
+```
+
+Append `@<branch-or-tag>` to the claudecode-agents repo reference (`rzem-ai/claudecode-agents@main`) to pin the marketplace to a ref. Inside a session, `/plugin` opens the same marketplace and install flow interactively. Updating is `claude plugin update claudecode-agents@rzem`, and because there is one install record there is one version: nothing else on the machine pins an older copy. Claude Code keeps a plugin cache dir for every version some record still references, so a project-scope or local-scope enable for the same plugin is the thing to avoid - every path that enables it, including every agent worktree cut under `.claude/worktrees/`, gets its own record at whatever version was current, and the old cache dirs stay until the last record naming them is gone.
+
+**In the project.** From a clone of the claudecode-agents repo, copy the settings template into the project you want the fleet in:
 
 ```bash
 git clone https://github.com/rzem-ai/claudecode-agents.git
@@ -57,16 +66,9 @@ mkdir -p /path/to/your-project/.claude
 cp claudecode-agents/claudecode-agents/templates/project-settings.json /path/to/your-project/.claude/settings.json
 ```
 
-The template carries three keys: `extraKnownMarketplaces` (the `rzem` marketplace, sourced from the claudecode-agents GitHub repo), `enabledPlugins` (`claudecode-agents@rzem`), and `agent` (`claudecode-agents:lead`, so the main session runs as the lead). If the project already has a `.claude/settings.json`, merge those three keys into it rather than overwriting the file. Then start Claude Code in the project and trust the folder when asked. On trust, Claude Code adds the marketplace, installs and enables the plugin, and the session runs as the lead - no further prompt. Commit `.claude/settings.json` so every clone, every teammate and every Claude Code on the web session gets the same fleet.
+The template carries two keys: `extraKnownMarketplaces` (the `rzem` marketplace, sourced from the claudecode-agents GitHub repo, with `autoUpdate` off so a project moves to a new fleet version when you say so) and `agent` (`claudecode-agents:lead`, so the main session runs as the lead). It deliberately carries no `enabledPlugins`: that key is what the machine-level install provides. If the project already has a `.claude/settings.json`, merge those two keys into it rather than overwriting the file. Commit `.claude/settings.json` so every clone and every teammate runs the same lead against the same marketplace; each of them installs the plugin once on their own machine, as above.
 
-**The manual route.** If you would rather not touch project settings, or want the plugin at user scope on this machine:
-
-```bash
-claude plugin marketplace add rzem-ai/claudecode-agents
-claude plugin install claudecode-agents@rzem
-```
-
-Append `@<branch-or-tag>` to the claudecode-agents repo reference (`rzem-ai/claudecode-agents@main`) to pin the marketplace to a ref. The plugin ships the agents, skills, hooks and workflows; it does not decide which agent the main session runs as, so add `"agent": "claudecode-agents:lead"` to the project's `.claude/settings.json` if you want the lead in charge. Inside a session, `/plugin` opens the same marketplace and install flow interactively.
+What this gives up: Claude Code on the web has no machine-level install, and it reads only what the repo commits, so a cloud session no longer picks the fleet up on folder trust. A project that needs the fleet on the web adds `"enabledPlugins": {"claudecode-agents@rzem": true}` to its committed `.claude/settings.json` and accepts the per-path records that come with it on every developer machine. That is a per-project choice, and the template does not make it for you.
 
 **Verify.** `claude plugin list` shows `claudecode-agents@rzem` as enabled. Inside a session, `/agents` lists the ten fleet agents under the plugin. If the plugin installed but the agents are missing, the marketplace cache is stale - see *Staying current* below.
 

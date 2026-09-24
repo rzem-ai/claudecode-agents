@@ -16,13 +16,14 @@ If it is not a repository, the fleet cannot work here: coder worktrees, review-r
 
 ## 1. Settings
 
-Merge the three keys from `${CLAUDE_PLUGIN_ROOT}/templates/project-settings.json` into the project's `.claude/settings.json`:
+Merge the two keys from `${CLAUDE_PLUGIN_ROOT}/templates/project-settings.json` into the project's `.claude/settings.json`:
 
 - `agent` (`claudecode-agents:lead`)
 - `extraKnownMarketplaces.rzem`
-- `enabledPlugins["claudecode-agents@rzem"]`
 
 If `.claude/settings.json` does not exist, copy the template as-is. If it exists, add only the keys that are missing and leave every existing key exactly as it is - including an existing `agent`, an existing `rzem` marketplace entry, and any other plugins. A key that is present but differs from the template is a conflict: report it and leave it alone rather than changing it.
+
+Do not add `enabledPlugins`. The plugin is enabled at user scope on each machine, and a project-scope enable mints a separate install record for every path that carries it, including every agent worktree, each pinned to whatever version was current. If the project already enables `claudecode-agents@rzem` in `.claude/settings.json` or `.claude/settings.local.json`, say so in the report and explain that cost; removing it is the human's call, because a project that runs on Claude Code on the web needs the committed enable to get the fleet there at all.
 
 ## 2. Skeleton
 

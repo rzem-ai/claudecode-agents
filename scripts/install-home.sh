@@ -19,8 +19,12 @@
 # see is_protected() below.
 #
 # The plugin itself is not installed here. That is
-#   claude plugin marketplace update rzem
-# plus a trusted repo carrying claudecode-agents/templates/project-settings.json.
+#   claude plugin marketplace add rzem-ai/claudecode-agents
+#   claude plugin install claudecode-agents@rzem
+# once per machine, at user scope - the only enable point, so there is one
+# install record and one version. Projects carry only the marketplace and the
+# agent (claudecode-agents/templates/project-settings.json); a project-scope
+# enable mints a record per path, worktrees included, and pins old versions.
 #
 # Usage:
 #   scripts/install-home.sh                 install everything
