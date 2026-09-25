@@ -109,14 +109,21 @@ The board needs no secret at all. It is a directory of markdown files at `.board
 
 A clone without the plugin has the `.boards/` files and no hooks to move them - a readable board nobody moves. That is acceptable.
 
-To render the ten per-agent memory credentials from 1Password:
+The installer renders no secrets unless a machine lists some. The list is a local file, `~/.config/claudecode-agents/secrets.spec` (or wherever `CLAUDECODE_AGENTS_SECRET_SPEC` points), never committed, so vault and item names stay off the repository. One secret per line:
+
+```
+# <destination filename>|op://<vault>/<item>/<field>
+example-credential|op://<vault>/<item>/<field>
+```
+
+Then render them from 1Password:
 
 ```bash
-eval "$(op signin)"                       # interactive; lab boxes export OP_SERVICE_ACCOUNT_TOKEN instead
+eval "$(op signin)"                       # interactive; an unattended box exports OP_SERVICE_ACCOUNT_TOKEN instead
 scripts/install-home.sh --secrets-only    # or drop the flag to do files and secrets together
 ```
 
-The `op://` references at the top of `scripts/install-home.sh` are placeholders until the fleet vault exists. Edit that one block to point at the real vault, item and field; nothing else in the script should ever need changing. A secret that cannot be read is reported by reference, never by value, and the script exits non-zero so a missing one is not missed.
+Each lands in `~/.config/claudecode-agents/` at mode 600. With no spec the step is skipped and `op` is never needed. A malformed spec line, or a destination that is not a plain filename, stops the run before 1Password is touched. A secret that cannot be read is reported by reference, never by value, and the script exits non-zero so a missing one is not missed.
 
 Knobs, all optional:
 
