@@ -223,14 +223,16 @@ Lenient is the default because a gate that refuses every task on a fresh install
 
 **`spec-writer`** - "Never write anywhere except under `docs/specs/`". Any `Write`, `Edit`, `MultiEdit` or `NotebookEdit` whose path does not resolve inside a `docs/specs/` directory is denied. Paths are made absolute against `cwd` and normalised lexically first, so `docs/specs/../../etc/passwd` does not slip through.
 
-**`scout`** - "Never edit, write or create a file" and the Bash allowlist from its Invariants. Write tools are denied outright. A Bash command is denied unless every segment of it starts with `ls`, `cat`, `head`, `tail`, `sed`, `wc`, `file`, `rg`, `grep`, `find`, `git`, `cd`, `pwd`, `echo` or `true`, with:
+**`scout`** - "Never edit, write or create a file" and the Bash allowlist from its Invariants. Write tools are denied outright. A Bash command is denied unless every segment of it starts with `ls`, `cat`, `head`, `tail`, `sed`, `wc`, `file`, `rg`, `grep`, `find`, `git`, `cd`, `pwd`, `echo`, `true` or `read`, with:
 
 - `sed` requiring `-n` and rejecting `-i`, because the invariant says `sed -n`
 - `find` rejecting `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete` and the `-f*` actions, which run or write things
 - `git` limited to `log`, `show`, `blame`, `diff` and `ls-files`
 - redirection (`>`, `>>`), command substitution (`$(`, backticks) and process substitution denied anywhere in the command
 
-`cd`, `pwd`, `echo` and `true` are on the allowlist and are **not** in scout's Invariants. They are there because none of them can change state and all of them turn up inside otherwise legal commands. That is the only addition; if you would rather it were exactly the invariant, delete them from `SCOUT_ALLOWED_CMDS`.
+`cd`, `pwd`, `echo`, `true` and `read` are on the allowlist and are **not** in scout's Invariants. They are there because none of them can change state and all of them turn up inside otherwise legal commands - `read` as the head of `while read f; do ...; done`. That is the only addition; if you would rather it were exactly the invariant, delete them from `SCOUT_ALLOWED_CMDS`. `reviewer` carries `read` for the same reason.
+
+A `for NAME in WORDS` loop header runs nothing, so every role reads it as shell syntax rather than a command and checks only the body behind `do`. A loop that only reads is allowed wherever the reads are. C-style `for ((...))` is not recognised and stays denied for the allowlist roles.
 
 Two deliberate softenings so the hook is not merely annoying: quoted spans are stripped before the redirection scan, so `grep -rn '=>' src/` is allowed, and `2>/dev/null` is removed before that scan, because discarding output is not a state change.
 
@@ -364,7 +366,7 @@ The design specifies the board writes and the gates; the mechanics below are thi
 6. **The `## Done` comment is posted from `SubagentStop` rather than `TaskCompleted`.** The design gives Done to `TaskCompleted`, which never receives a handoff, so the text is read where it exists and the column move stays where the design put it.
 7. **A successful run with no blockers changes no column.** The design gives Done to `TaskCompleted`, so `SubagentStop` leaves the item in Doing. It comments there; it does not move it.
 8. **The handoff check runs on success only**, and tolerates preamble prose, which is unparsed. Everything else in the skill is enforced strictly, including the blank-line rule and where a typed line may appear. See above for why.
-9. **`cd`, `pwd`, `echo` and `true`** on scout's Bash allowlist, and the quote-stripping and `2>/dev/null` softenings.
+9. **`cd`, `pwd`, `echo`, `true` and `read`** on scout's Bash allowlist, the `for` header read as syntax, and the quote-stripping and `2>/dev/null` softenings.
 10. **`fleet-steward`'s repo-root resolution** by walking up from the plugin directory, and the git verb list, which is read off its Invariants prose.
 11. **Which CLI calls a column move and a comment are made of**, and the ten-second timeout around each. The design names the board and not the commands; `board task view --json`, `board task edit -s` and `board task edit --comment --comment-author` are this layer's choice, as is using the hook's own name (`@SubagentStop` and so on) as the comment author.
 12. **The `SubagentStop` matcher.** The design gives the hook to every subagent. Scoping it to the ten fleet agents is this layer's decision, because the workflows spawn `Plan` and `general-purpose` lanes that return JSON.
