@@ -45,7 +45,7 @@ One more that is not a column but bites everywhere: **"MCP (read)" needs explici
 
 ### 1.4 Which preloaded skills resolve
 
-`skills:` resolves a name from the plugin, the project and user scope alike, and a name that resolves nowhere is a silent no-op (check 6 of `migration-checklist`). The plugin ships `board`, `compound`, `glossary`, `handoff`, `humanize`, `looping`, `migration-checklist` and `run-article`, and `brainstorming` resolves from the superpowers plugin. A body names only what resolves: a body naming a skill that does not exist tells the agent a procedure is loaded when it is not, which is worse than the body carrying the procedure inline. When a new skill ships, add it to the bodies that need it and update this paragraph.
+`skills:` resolves a name from the plugin, the project and user scope alike, and a name that resolves nowhere is a silent no-op (check 6 of `migration-checklist`). The plugin ships `board-conventions`, `compound`, `glossary`, `handoff`, `humanize`, `looping`, `migration-checklist` and `run-article`, and `brainstorming` resolves from the superpowers plugin. A body names only what resolves: a body naming a skill that does not exist tells the agent a procedure is loaded when it is not, which is worse than the body carrying the procedure inline. When a new skill ships, add it to the bodies that need it and update this paragraph.
 
 ## 2. Body structure
 

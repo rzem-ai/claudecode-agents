@@ -1,5 +1,5 @@
 ---
-name: board
+name: board-conventions
 description: How the board works - its projects and issues, the meaning of the five columns (to do, doing, blocked, blocked by human, done), which columns are written by hooks and which a human-facing assistant writes itself, the checkout's focus (`task_focus`, `/work`) that tells the hooks which issue the work is on, how the handoff's Decisions needed lines reach the human queue, and what earns a board item at all.
 when_to_use: Read before filing, reading, moving, commenting on or closing any board item or project, before spawning a subagent against an item, before reporting board status to the human, and whenever you are deciding whether a piece of work is board work or just a task inside the session.
 ---

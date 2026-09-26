@@ -10,7 +10,7 @@ color: purple
 skills:
   - glossary
   - handoff
-  - board
+  - board-conventions
   - brainstorming
 ---
 
