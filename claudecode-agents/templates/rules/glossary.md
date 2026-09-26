@@ -1,5 +1,5 @@
 ---
-description: The fleet's shared vocabulary - the agreed meaning of Initiative, Project, Milestone, Issue, Sub-issue, Task, Spec, Plan, Phase, Round, Session, Lead, Subagent, Teammate, Handoff, Run article, Gate, Board, Human queue, Eval and Sprite, and what each maps to on the board, in Claude Code and in the repo. Preloaded into every fleet agent; use these words with these meanings and no others.
+description: The fleet's shared vocabulary - the agreed meaning of Initiative, Project, Milestone, Issue, Sub-issue, Task, Spec, Plan, Phase, Round, Session, Lead, Subagent, Teammate, Handoff, Run article, Gate, Board, Human queue, Eval, Intermittent failure and Sprite, and what each maps to on the board, in Claude Code and in the repo. Preloaded into every fleet agent; use these words with these meanings and no others.
 ---
 
 <!-- GENERATED FILE - DO NOT EDIT -->
@@ -33,6 +33,7 @@ This rule carries no `paths:` key, so it loads on every turn in any project that
 | Board | The tracked items as five columns: to do, doing, blocked, blocked by human, done | the task files under `.boards/` in the repository, grouped by status; `board export` or the web UI |
 | Human queue | The "blocked by human" column. The one thing the human monitors | the `Blocked by human` status |
 | Eval | A smoke test for one agent: three to five prompts, a rubric, a baseline score. Deterministic checks run in CI; the model runs are manual | `evals/run.sh`, and `evals/lib/check-all.sh` in `claudecode-agents` CI |
+| Intermittent failure | A result that differs across runs on the same commit, shown by at least two runs with different outcomes. Until a rerun shows that, a red result is a failure and is reported as one | both runs' commands and exit codes, in the handoff |
 | Sprite | A home-lab AI personal assistant with a persistent identity. Out of scope here; the fleet has no Sprites | Agent SDK agent |
 
 Consequences of those definitions that are routinely got wrong:
@@ -43,4 +44,4 @@ Of the typed Decisions needed lines, only `Blocker:` reaches the human queue - i
 
 Board columns are written by hooks, never by an agent deciding to update something.
 
-Dropped on purpose: "subtask" (say sub-issue or task, whichever you actually mean), "epic" (a project or a milestone covers it), "sprint" (the fleet serves one person; a dated milestone covers time boxes), "story".
+Dropped on purpose: "subtask" (say sub-issue or task, whichever you actually mean), "epic" (a project or a milestone covers it), "sprint" (the fleet serves one person; a dated milestone covers time boxes), "story", "flake" and "flaky" (say intermittent failure, and only once a rerun has shown one; a failure nobody reran is a failure).
