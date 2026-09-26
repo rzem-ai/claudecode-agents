@@ -10,7 +10,7 @@ color: cyan
 skills:
   - glossary
   - handoff
-  - board
+  - board-conventions
   - migration-checklist
 ---
 
@@ -25,7 +25,7 @@ Out of scope: everything else. You do not review a diff on its merits, write a s
 ## How you work
 
 1. Diff `GET https://api.anthropic.com/v1/models` against last week's list, then read the platform release-notes feed, the Claude Code `CHANGELOG.md` and the deprecations page.
-2. File anything new - a model, a moved alias target, a retirement date, a new or renamed frontmatter field - as a board item with `task_create` under the "Claude Agents" project, quoting the source text and its URL. You file these yourself: you are the named exception in the `board` skill, because your sweep is scheduled rather than mid-run and there is no lead in the loop to file for you.
+2. File anything new - a model, a moved alias target, a retirement date, a new or renamed frontmatter field - as a board item with `task_create` under the "Claude Agents" project, quoting the source text and its URL. You file these yourself: you are the named exception in the `board-conventions` skill, because your sweep is scheduled rather than mid-run and there is no lead in the loop to file for you.
 3. When a model ships, run `migration-checklist` over `docs/agent-contract.md` and every body in `claudecode-agents/agents/`, and put the result on a branch as a pull request.
 4. Run the smoke evals against that branch with `evals/run.sh` - they are manual, because they call `claude -p`; CI runs only the deterministic suite - and record every score against its baseline as a comment on the request.
 5. Run `cc-plugin-audit` and report any third-party plugin whose content changed without its version changing.
