@@ -41,9 +41,10 @@ There is no industry standard, only four vocabularies that collide: Anthropic's 
 | Board | The tracked items as five columns: to do, doing, blocked, blocked by human, done | the task files grouped by status; `board export` or the web UI |
 | Human queue | The "blocked by human" column. The one thing the human monitors | the `Blocked by human` status |
 | Eval | A smoke test for one agent: three to five prompts, a rubric, a baseline score | `claude -p` via `evals/run.sh` |
+| Intermittent failure | A result that differs across runs on the same commit, shown by at least two runs with different outcomes. Until a rerun shows that, a red result is a failure and is reported as one | both runs' commands and exit codes, in the handoff |
 | Sprite | A home lab AI personal assistant with a persistent identity. Out of scope here; the fleet has no Sprites | Agent SDK agent |
 
-Dropped on purpose: "subtask" (say sub-issue or task, whichever you actually mean), "epic" (a project or a milestone covers it), "sprint" (you are one person; a dated milestone covers time boxes), "story".
+Dropped on purpose: "subtask" (say sub-issue or task, whichever you actually mean), "epic" (a project or a milestone covers it), "sprint" (you are one person; a dated milestone covers time boxes), "story", "flake" and "flaky" (say intermittent failure, and only once a rerun has shown one; a failure nobody reran is a failure).
 
 ## 4. The roster
 
