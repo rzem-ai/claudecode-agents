@@ -506,6 +506,26 @@ allow_bash scout    '( cat README.md )'
 allow_bash scout    'timeout 5 grep -R needle src'
 allow_bash reviewer 'nice git log --oneline'
 allow_bash reviewer '! git log --oneline'
+# A `for NAME in WORDS` header runs nothing, so a loop over reads is the same act
+# as the reads. The header used to reach the allowlist as a command called
+# `for`, and `while read` reached it as a command called `read`, so both roles
+# denied a loop that only greps. Substitution, redirection and process
+# substitution are refused before the split, which is what keeps the header inert.
+allow_bash scout    'for f in a.md b.md; do echo "== $f"; grep -n DESC "$f"; done'
+allow_bash scout    'for f in docs/*.md; do head -3 "$f"; done'
+allow_bash scout    'find . -name "*.md" | while read f; do grep -n DESC "$f"; done'
+allow_bash scout    'while read -r f; do wc -l "$f"; done'
+allow_bash reviewer 'for f in a.md b.md; do grep -n DESC "$f"; done'
+allow_bash reviewer 'git ls-files | while read f; do head -1 "$f"; done'
+# What sits inside the loop is still checked, and the header cannot smuggle a
+# command in through its word list.
+deny_bash scout    'for f in a.md; do rm "$f"; done'
+deny_bash scout    'for f in $(rm -rf /tmp/x); do cat "$f"; done'
+deny_bash scout    'for f in a.md; do cat "$f" > /tmp/out; done'
+deny_bash reviewer 'for f in a.md; do npm test; done'
+deny_bash scout    'while read f; do rm "$f"; done'
+# C-style loops are not recognised as a header, so they stay denied; see hooks/README.md.
+deny_bash scout    'for ((i=0; i<3; i++)); do cat a.md; done'
 # The wrapper is transparent, not permissive: what it wraps is still checked.
 deny_bash scout '{ rm -rf /tmp/x; }'
 deny_bash scout 'nice rm -rf /tmp/x'

@@ -517,10 +517,12 @@ sub_verb() {
 # grep, find, and read-only git log, git show, git blame, git diff,
 # git ls-files."
 #
-# cd, pwd, echo and true are allowed on top of that list because none of them
-# can change state and every one of them appears inside an otherwise legal
-# command. That is the only addition; see hooks/README.md.
-SCOUT_ALLOWED_CMDS=" ls cat head tail sed wc file rg grep find git cd pwd echo true "
+# cd, pwd, echo, true and read are allowed on top of that list because none of
+# them can change state and every one of them appears inside an otherwise legal
+# command - read as the head of `while read f; do ...; done`, where it sets a
+# shell variable from standard input and writes nothing. That is the only
+# addition; see hooks/README.md.
+SCOUT_ALLOWED_CMDS=" ls cat head tail sed wc file rg grep find git cd pwd echo true read "
 SCOUT_ALLOWED_GIT=" log show blame diff ls-files "
 
 # Removes single- and double-quoted spans so a redirection character inside a
@@ -615,6 +617,15 @@ COMMAND_WRAPPERS=" command env builtin exec nohup time xargs timeout nice stdbuf
 # syntax is not a command at all, and after the strip it is empty and skipped.
 # Hence the whitespace-or-end match rather than the whitespace the openers need.
 LEADING_KEYWORD_RE='^(!|\{|\}|then|do|else|elif|if|while|until|fi|done|esac)([[:space:]].*)?$'
+# A for-loop header is not a keyword in front of a command: `for f in a b` runs
+# nothing at all, and the body arrives in the next segment behind `do`. So the
+# whole header is consumed and the segment ends up empty. Before this it reached
+# the allowlist roles as a command called `for`, and a loop that only greps was
+# denied. What could make the word list run something - $( ), backticks, <( )
+# and redirection - is refused before any role splits the command, or is its own
+# segment after the split, so the header is inert by the time it gets here.
+# C-style `for ((...))` is not matched and stays denied for the allowlist roles.
+FOR_HEADER_RE='^for[[:space:]]+[A-Za-z_][A-Za-z0-9_]*([[:space:]]+in([[:space:]].*)?)?$'
 # A redirection and its target. The target excludes parens so that `<(cmd)` and
 # `>(cmd)` are left whole for the process-substitution checks to see.
 LEADING_REDIRECT_RE='^[0-9]*(>>?|<)[[:space:]]*[^[:space:];|&<>()]+(.*)$'
@@ -624,6 +635,7 @@ strip_leading_syntax() {
     if [[ $s =~ ^[[:space:]]+(.*)$ ]]; then s="${BASH_REMATCH[1]}"; continue; fi
     if [[ $s =~ ^\((.*)$ ]]; then s="${BASH_REMATCH[1]}"; continue; fi
     if [[ $s =~ $LEADING_KEYWORD_RE ]]; then s="${BASH_REMATCH[2]}"; continue; fi
+    if [[ $s =~ $FOR_HEADER_RE ]]; then s=""; break; fi
     if [[ $s =~ $LEADING_REDIRECT_RE ]]; then s="${BASH_REMATCH[2]}"; continue; fi
     break
   done
@@ -917,7 +929,7 @@ enforce_fleet_steward() {
 # a reviewer looks at status and rev-parse where a scout does not - and plus
 # awk/sort/uniq/comm/diff/cut/tr/column, which shape output without touching it.
 REVIEWER_ALLOWED_GIT=" log show blame diff ls-files status shortlog describe rev-parse rev-list cat-file grep whatchanged "
-REVIEWER_ALLOWED_CMDS=" ls cat head tail sed wc file rg grep find git cd pwd echo true awk sort uniq comm diff cut tr column basename dirname stat od xxd "
+REVIEWER_ALLOWED_CMDS=" ls cat head tail sed wc file rg grep find git cd pwd echo true read awk sort uniq comm diff cut tr column basename dirname stat od xxd "
 
 enforce_reviewer() {
   if is_write_tool "$tool_name"; then
